@@ -1,0 +1,101 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "{env:OPENCODE_LARGE_MODEL}",
+  "small_model": "{env:OPENCODE_SMALL_MODEL}",
+  "lsp": {
+    "pyright": {
+      "disabled": true
+    },
+    "lua-ls": {
+      "command": ["lua-ls"],
+      "extensions": [".lua"]
+    },
+    "ruff": {
+      "command": ["ruff", "server"],
+      "extensions": [".py", ".pyi"]
+    },
+    "clangd": {
+      "command": ["clangd"],
+      "extensions": [".c", ".h", ".cpp", ".hpp", ".cc", ".cxx", ".hxx", ".cu"]
+    },
+    "bash": {
+      "command": ["bashls"],
+      "extensions": [".sh", ".bash"]
+    },
+    "yaml-ls": {
+      "command": ["yamlls"],
+      "extensions": [".yaml", ".yml"]
+    },
+    "rust": {
+      "command": ["rust-analyzer"],
+      "extensions": [".rs"]
+    },
+    "marksman": {
+      "command": ["marksman"],
+      "extensions": [".md"]
+    },
+    "jqls": {
+      "command": ["jqls"],
+      "extensions": [".jq"]
+    },
+    "jsonls": {
+      "command": ["jsonls"],
+      "extensions": [".json", ".jsonc"]
+    },
+    "glsl_analyzer": {
+      "command": ["glsl_analyzer"],
+      "extensions": [".glsl", ".vert", ".frag", ".geom", ".comp"]
+    },
+    "buf_ls": {
+      "command": ["buf_ls"],
+      "extensions": [".proto"]
+    },
+    "nixd": {
+      "command": ["nixd"],
+      "extensions": [".nix"]
+    },
+    "nil_ls": {
+      "command": ["nil"],
+      "extensions": [".nix"]
+    },
+    "neocmake": {
+      "command": ["neocmake"],
+      "extensions": [".cmake", "CMakeLists.txt"]
+    },
+    "taplo": {
+      "command": ["taplo", "lsp", "stdio"],
+      "extensions": [".toml"]
+    },
+    "tinymist": {
+      "command": ["tinymist"],
+      "extensions": [".typ"]
+    },
+    "ty": {
+      "command": ["ty", "server"],
+      "extensions": [".py", ".pyi"]
+    }
+  },
+  "permission": {
+    "external_directory": {
+      "/tmp/**": "allow",
+      "/nix/store/**": "allow"
+    },
+    "edit": {
+      "/nix/store/**": "deny"
+    }
+  },
+  "agent": {
+    "compaction": {
+      "model": "{env:OPENCODE_MEDIUM_MODEL}"
+    },
+    "code-cleanup": {
+      "model": "{env:OPENCODE_SMALL_MODEL}"
+    },
+    "build-test-summarizer": {
+      "model": "{env:OPENCODE_SMALL_MODEL}"
+    },
+    "software-engineer": {
+      "model": "{env:OPENCODE_MEDIUM_MODEL}"
+    }
+  }
+}
