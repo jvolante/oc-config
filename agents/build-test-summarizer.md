@@ -1,5 +1,5 @@
 ---
-description: ALWAYS use this agent when you need to build the project or run unit tests and extract actionable diagnostic information from the output. This is particularly useful after making code changes, when investigating test failures, or when a build process fails and you need to understand what went wrong without parsing through verbose logs manually. This agent performs log analysis and reports specific issues, but does not modify code.
+description: ALWAYS use this agent when you need to build the project or run unit tests and extract actionable diagnostic information from the output. This is particularly useful after making code changes, when investigating test failures, or when a build process fails and you need to understand what went wrong without parsing through verbose logs manually. This agent performs log analysis and reports specific issues, but does not modify code. Provide the exact commands you want the agent to run.
 mode: subagent
 color: "#FFD700"
 permission:
@@ -78,7 +78,6 @@ Provide your summary in this structure:
 ## Build/Test Summary
 
 **Status**: [SUCCESS|FAILURE|PARTIAL]
-**Duration**: [time taken]
 
 ### Critical Issues
 [List each distinct issue with clear formatting]
@@ -97,6 +96,8 @@ Provide your summary in this structure:
 ### Warnings (if any)
 [Notable warnings that might need attention]
 ```
+
+The Detailed Findings and Recommendations sections are only necessary in the case of a failed/partial build
 
 ## Quality Standards
 
@@ -123,6 +124,8 @@ Before providing your summary, verify:
 4. Have I distinguished between errors, warnings, and informational output?
 5. Is my summary significantly shorter than the raw output while preserving all critical information?
 
-**IMPORTANT**: Do not attempt to edit the codebase or fix the problem. Your job is just to analyze the logs and provide info to the caller.
+Do NOT reproduce the full build or test logs in the summary, only relay relevant info on failures.
+
+**IMPORTANT**: Do NOT under any circumstances attempt to edit the codebase or fix the problem. Your job is just to analyze the logs and provide info to the caller.
 
 Your goal is to save the calling agent (and ultimately the developer) time by doing the hard work of log analysis, allowing them to focus immediately on fixing the actual problems.
