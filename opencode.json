@@ -15,6 +15,7 @@
       "extensions": [".py", ".pyi"]
     },
     "clangd": {
+      "disabled": true,
       "command": ["clangd"],
       "extensions": [".c", ".h", ".cpp", ".hpp", ".cc", ".cxx", ".hxx", ".cu"]
     },
@@ -95,7 +96,12 @@
       "model": "{env:OPENCODE_SMALL_MODEL}"
     },
     "software-engineer": {
-      "model": "{env:OPENCODE_MEDIUM_MODEL}"
+      "model": "{env:OPENCODE_MEDIUM_MODEL}",
+      "permission": {
+        "task": {
+          "software-engineer": "deny"
+        }
+      }
     }
   }
 }

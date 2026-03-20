@@ -9,8 +9,6 @@ the entire plan. Acknowledge the changes and only state what modifications will 
 
 It's not necessary to provide a detailed breakdown of the work completed unless asked.
 
-When running the Bash tool always pass a timeout of at least 20 minutes
-
 # Proactive Behavior
 
 Don't wait to be asked:
