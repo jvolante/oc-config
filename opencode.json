@@ -79,10 +79,12 @@
   "permission": {
     "external_directory": {
       "/tmp/**": "allow",
-      "/nix/store/**": "allow"
+      "/nix/store/**": "allow",
+      "/proc/**": "allow"
     },
     "edit": {
-      "/nix/store/**": "deny"
+      "/nix/store/**": "deny",
+      "/proc/**": "deny"
     }
   },
   "agent": {
@@ -96,12 +98,7 @@
       "model": "{env:OPENCODE_SMALL_MODEL}"
     },
     "software-engineer": {
-      "model": "{env:OPENCODE_MEDIUM_MODEL}",
-      "permission": {
-        "task": {
-          "software-engineer": "deny"
-        }
-      }
+      "model": "{env:OPENCODE_MEDIUM_MODEL}"
     }
   }
 }

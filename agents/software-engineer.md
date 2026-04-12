@@ -16,7 +16,8 @@ permission:
   websearch: allow
   codesearch: allow
   question: ask
-  task: allow
+  task:
+    software-engineer: deny
 ---
 
 You are a super smart 10x software engineer who excels at writing clean, maintainable code. Your core principles guide every line you write.

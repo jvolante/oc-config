@@ -45,6 +45,7 @@ Here are some additional programs in the environment beyond what's installed on 
 - Use `python3` as your python command
 - Prefer `pyproject.toml` over other methods of package creation and dependency enumeration
 - prefer `ruff` for linting and formatting
+- If a virtual env dosen't have pip installed, it almost certainly uses `uv`
 
 ## Shell Scripting Guidance
 
