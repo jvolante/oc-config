@@ -1,5 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
   "model": "{env:OPENCODE_LARGE_MODEL}",
   "small_model": "{env:OPENCODE_TINY_MODEL}",
   "lsp": {
@@ -80,12 +81,17 @@
     "external_directory": {
       "/tmp/**": "allow",
       "/nix/store/**": "allow",
-      "/proc/**": "allow"
+      "/proc/**": "allow",
+      "{env:HOME}/projects/**": "allow"
     },
     "edit": {
       "/nix/store/**": "deny",
-      "/proc/**": "deny"
+      "/proc/**": "deny",
+      "{env:HOME}/projects/**": "ask"
     }
+  },
+  "compaction": {
+    "reserved": 20000
   },
   "agent": {
     "compaction": {
