@@ -1,4 +1,3 @@
-
 When using make, prefer `make -C /path/to/build/dir` instead of changing directories.
 
 Practice defensive programming, use asserts and errors to make assumptions explicit
@@ -8,6 +7,8 @@ When making a plan, if the user suggests a modification to the plan it's not nec
 the entire plan. Acknowledge the changes and only state what modifications will be made to the existing plan.
 
 It's not necessary to provide a detailed breakdown of the work completed unless asked.
+
+IMPORTANT: Don't set custom timeouts when using the bash tool
 
 # Proactive Behavior
 

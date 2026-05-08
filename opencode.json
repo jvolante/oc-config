@@ -8,73 +8,162 @@
       "disabled": true
     },
     "lua-ls": {
-      "command": ["lua-ls"],
-      "extensions": [".lua"]
+      "command": [
+        "lua-ls"
+      ],
+      "extensions": [
+        ".lua"
+      ]
     },
     "ruff": {
-      "command": ["ruff", "server"],
-      "extensions": [".py", ".pyi"]
+      "command": [
+        "ruff",
+        "server"
+      ],
+      "extensions": [
+        ".py",
+        ".pyi"
+      ]
     },
     "clangd": {
       "disabled": true,
-      "command": ["clangd"],
-      "extensions": [".c", ".h", ".cpp", ".hpp", ".cc", ".cxx", ".hxx", ".cu"]
+      "command": [
+        "clangd"
+      ],
+      "extensions": [
+        ".c",
+        ".h",
+        ".cpp",
+        ".hpp",
+        ".cc",
+        ".cxx",
+        ".hxx",
+        ".cu"
+      ]
     },
     "bash": {
-      "command": ["bash-language-server"],
-      "extensions": [".sh", ".bash"]
+      "command": [
+        "bash-language-server"
+      ],
+      "extensions": [
+        ".sh",
+        ".bash"
+      ]
     },
     "yaml-ls": {
-      "command": ["yamlls"],
-      "extensions": [".yaml", ".yml"]
+      "command": [
+        "yamlls"
+      ],
+      "extensions": [
+        ".yaml",
+        ".yml"
+      ]
     },
     "rust": {
-      "command": ["rust-analyzer"],
-      "extensions": [".rs"]
+      "command": [
+        "rust-analyzer"
+      ],
+      "extensions": [
+        ".rs"
+      ]
     },
     "marksman": {
-      "command": ["marksman"],
-      "extensions": [".md"]
+      "command": [
+        "marksman"
+      ],
+      "extensions": [
+        ".md"
+      ]
     },
     "jqls": {
-      "command": ["jqls"],
-      "extensions": [".jq"]
+      "command": [
+        "jqls"
+      ],
+      "extensions": [
+        ".jq"
+      ]
     },
     "jsonls": {
-      "command": ["jsonls"],
-      "extensions": [".json", ".jsonc"]
+      "command": [
+        "jsonls"
+      ],
+      "extensions": [
+        ".json",
+        ".jsonc"
+      ]
     },
     "glsl_analyzer": {
-      "command": ["glsl_analyzer"],
-      "extensions": [".glsl", ".vert", ".frag", ".geom", ".comp"]
+      "command": [
+        "glsl_analyzer"
+      ],
+      "extensions": [
+        ".glsl",
+        ".vert",
+        ".frag",
+        ".geom",
+        ".comp"
+      ]
     },
     "buf_ls": {
-      "command": ["buf_ls"],
-      "extensions": [".proto"]
+      "command": [
+        "buf_ls"
+      ],
+      "extensions": [
+        ".proto"
+      ]
     },
     "nixd": {
-      "command": ["nixd"],
-      "extensions": [".nix"]
+      "command": [
+        "nixd"
+      ],
+      "extensions": [
+        ".nix"
+      ]
     },
     "nil_ls": {
-      "command": ["nil"],
-      "extensions": [".nix"]
+      "command": [
+        "nil"
+      ],
+      "extensions": [
+        ".nix"
+      ]
     },
     "neocmake": {
-      "command": ["neocmake"],
-      "extensions": [".cmake", "CMakeLists.txt"]
+      "command": [
+        "neocmake"
+      ],
+      "extensions": [
+        ".cmake",
+        "CMakeLists.txt"
+      ]
     },
     "taplo": {
-      "command": ["taplo", "lsp", "stdio"],
-      "extensions": [".toml"]
+      "command": [
+        "taplo",
+        "lsp",
+        "stdio"
+      ],
+      "extensions": [
+        ".toml"
+      ]
     },
     "tinymist": {
-      "command": ["tinymist"],
-      "extensions": [".typ"]
+      "command": [
+        "tinymist"
+      ],
+      "extensions": [
+        ".typ"
+      ]
     },
     "ty": {
-      "command": ["ty", "server"],
-      "extensions": [".py", ".pyi"]
+      "command": [
+        "ty",
+        "server"
+      ],
+      "extensions": [
+        ".py",
+        ".pyi"
+      ]
     }
   },
   "permission": {
