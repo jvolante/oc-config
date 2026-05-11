@@ -9,6 +9,7 @@ the entire plan. Acknowledge the changes and only state what modifications will 
 It's not necessary to provide a detailed breakdown of the work completed unless asked.
 
 IMPORTANT: Don't set custom timeouts when using the bash tool
+IMPORTANT: Don't ask explore agents to return the contents of an entire file. If you need that, read it yourself.
 
 # Proactive Behavior
 
@@ -25,6 +26,13 @@ Don't wait to be asked:
 - If a function returns a status code _always_ verify it
 - If using random values in tests _always_ set the seed.
 - Use the build-and-test-summarizer agent to run tests and summarize failures, test output can be very verbose
+
+# Git usage
+
+- Use conventional commits in commit messages
+- Use feature/ fix/ docs/, etc. when creating feature branches
+- Include the Jira ticket number in the branch name
+- Use conventional commits headers as PR titles, include Jira ticket number if relevant
 
 # Additional Programs
 

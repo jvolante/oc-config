@@ -14,13 +14,7 @@ read credentials from environment variables — never hardcode them.
 |---|---|
 | `$JIRA_PROJECTS` | Optional. Comma-separated project keys, e.g. `ASDF,SFTW`. When set, `jira-query` automatically appends `AND project in (...)` to every JQL query. |
 
-The helper functions in `~/jvscripts/mybashrc.sh` wrap these into named commands.
-Prefer the helper functions. Fall back to raw `curl` only when you need fields or
-endpoints not covered by the helpers.
-
 ## Helper Functions (preferred)
-
-Source `~/jvscripts/mybashrc.sh` before using these in scripts.
 
 ```bash
 # Search across all projects — accepts any JQL

@@ -16,8 +16,6 @@ All project-scoped commands take a slug in the format `github/<org>/<repo>`.
 
 ## Helper Functions (preferred)
 
-Source `~/jvscripts/mybashrc.sh` before using these in scripts.
-
 ```bash
 # Current user info
 cci-me

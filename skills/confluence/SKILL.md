@@ -16,8 +16,6 @@ operations read credentials from environment variables — never hardcode them.
 
 ## Helper Functions (preferred)
 
-Source `~/jvscripts/mybashrc.sh` before using these in scripts.
-
 ```bash
 # Search pages/content using CQL
 confluence-search '<cql>'

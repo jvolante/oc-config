@@ -195,5 +195,22 @@
     "software-engineer": {
       "model": "{env:OPENCODE_MEDIUM_MODEL}"
     }
+  },
+  "mcp": {
+    "lib-info": {
+      "type": "local",
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "/home/jvolante/projects/lib-info-mcp",
+        "python3",
+        "-m",
+        "lib_info_mcp",
+        "--config",
+        "/home/jvolante/.config/lib-info-mcp/config.toml"
+      ],
+      "timeout": 600000
+    }
   }
 }
