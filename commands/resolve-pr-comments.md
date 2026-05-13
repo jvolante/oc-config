@@ -2,27 +2,25 @@
 description: Resolve unresolved review comments on the PR for the current branch
 ---
 
-Load the `open-prs` skill now, before doing anything else.
+Load the `circleci` skill now, before doing anything else.
 
 ## 1. Find the PR
 
-Get the current branch name:
-```
-!`git branch --show-current`
+Get the PR for the current branch:
+
+```bash
+gh pr view --json number,url,headRefName,repository,reviews
 ```
 
-Use `open-prs --json` to find the open PR whose `headRefName` matches the current branch. Extract the PR number, repo (`repository.nameWithOwner`), and GHE hostname from the PR URL.
+Extract the PR number, repo (`repository.nameWithOwner`), and GHE hostname from the PR URL.
+
+If no PR is found, report that and stop.
 
 Also extract the list of reviewers who have `CHANGES_REQUESTED` reviews — you will need them for step 9:
 
 ```bash
-open-prs --json | jq '[.[] | select(.headRefName == "<branch>") |
-  { number, url,
-    nameWithOwner: .repository.nameWithOwner,
-    changes_requested_by: ([.reviews.nodes[].author.login] | unique) }]'
+gh pr view --json reviews --jq '[.reviews[] | select(.state == "CHANGES_REQUESTED") | .author.login] | unique'
 ```
-
-If no matching PR is found, report that and stop.
 
 ## 2. Fetch review threads and top-level review comments
 
@@ -107,7 +105,16 @@ Once the user confirms:
 
 After all changes are applied, commit with a descriptive message and push to the current branch.
 
-## 8. Reply and resolve each item
+## 8. Wait for CI and fix any failures
+
+Dispatch a @build-test-summarizer to run `cci-wait-on-jobs` and summarize any CI failures
+
+- If CI passes → continue to step 9
+- If CI fails → fix the errors, commit, push, then repeat this step
+
+Continue this loop until CI is fully green before proceeding.
+
+## 9. Reply and resolve each item
 
 For every item in the plan:
 
@@ -145,7 +152,7 @@ mutation {
 
 Confirm each mutation returns `isResolved: true`. Top-level review comments cannot be resolved via this mutation — skip it for those.
 
-## 9. Re-request review
+## 10. Re-request review
 
 Re-request review from every reviewer who had `CHANGES_REQUESTED` (collected in step 1):
 

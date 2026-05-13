@@ -26,6 +26,26 @@ cci-projects
 # Latest pipeline + workflow statuses for the current git branch (infers slug and branch automatically)
 cci-current
 
+# Fetch logs for the most recently failed job on the current branch (infers slug and branch automatically)
+cci-failed-logs                                 # uses current git repo and branch
+cci-failed-logs <project-slug>                  # specific project, current branch
+cci-failed-logs <project-slug> <branch>         # specific project and branch
+
+# Wait for all CI jobs on the current remote HEAD to finish; prints failure logs automatically.
+# Exits 0 on full success, non-zero if any job failed. Ignores stale pipelines from prior pushes
+# by matching the pipeline to the current remote tracking SHA. _Do not_ use your own commands to wait
+# on jobs, use this one.
+cci-wait-on-jobs                                # infer slug + branch from git
+cci-wait-on-jobs <project-slug> [branch]        # explicit slug/branch
+cci-wait-on-jobs --timeout <seconds>            # give up after N seconds (default: 36000)
+cci-wait-on-jobs --no-logs                      # don't automatically print logs for failed jobs on completion
+
+# Build log output for a job (falls back to presigned URLs on self-hosted CCI instances)
+cci-log <project-slug> <build-num>
+
+# It's best to dispatch @build-test-summarizer to run cci-failed-logs, cci-log, or cci-wait-on-jobs for you so it will
+# summarize the output.
+
 # Recent builds across all projects
 cci-recent [limit]                              # default 25
 
@@ -34,9 +54,6 @@ cci-builds <project-slug> [branch] [limit]
 
 # Full workflow detail with all jobs
 cci-workflow <workflow-id>
-
-# Build log output for a job (falls back to presigned URLs on self-hosted CCI instances)
-cci-log <project-slug> <build-num>
 
 # Rerun a workflow from failed jobs
 cci-rerun <workflow-id>
