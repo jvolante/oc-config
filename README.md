@@ -72,28 +72,9 @@ Skills are specialized workflow packs that provide domain-specific tools and ins
 | **Open PRs** (`open-prs`) | Query and filter open pull requests with CI correlation |
 | **Replace in Files** (`replace-in-files`) | Bulk regex find-and-replace across directory trees |
 
-## Language Server Support
-
-The configuration includes LSP support for:
-- **Python**: ruff (linting, formatting)
-- **JavaScript/TypeScript**: jsonls
-- **C/C++**: clangd (disabled by default)
-- **Rust**: rust-analyzer
-- **Lua**: lua-ls
-- **Bash**: bash-language-server
-- **YAML**: yamlls
-- **Markdown**: marksman
-- **JSON/JSONC**: jsonls
-- **GLSL**: glsl_analyzer
-- **Protocol Buffers**: buf_ls
-- **Nix**: nixd, nil
-- **CMake**: neocmake
-- **TOML**: taplo
-- **Typst**: tinymist
-
 ## System Utilities
 
-The environment includes specialized command-line tools:
+The environment requires specialized command-line tools:
 - `ast-grep` - AST-based code search and manipulation
 - `shellcheck` - Shell script linting and formatting
 - `jq` - JSON query engine
@@ -101,36 +82,7 @@ The environment includes specialized command-line tools:
 - `jaq` - YAML/TOML/XML/CBOR query engine
 - `sage` - SageMath symbolic mathematics toolkit
 
-## Development Guidelines
-
-### Best Practices
-- Use conventional commits (feat, fix, docs, etc.)
-- Create feature branches: `feature/ticket-number-description`
-- Practice defensive programming with assertions
-- Avoid magic numbers; use named constants
-- Thoroughly test all code paths, especially error handling
-
-### Testing
-- Prefer many small tests over few large ones
-- Always verify status codes and CUDA return values
-- Set random seeds in tests that use random values
-- Use the build-test-summarizer agent to analyze failures
-
-### Language-Specific Notes
-- **Python**: Prefer PySide (not PyQt), use `Path` over `os.path`, prefer ruff for linting
-- **Shell**: Use `printf` over `echo`, prefer `/usr/bin/env` shebang
-- **Nix**: Use `inputsFrom` for devShell dependencies
-- **C++**: Use `const` and `constexpr` wherever possible
-
-## Getting Help
-
-- Press `ctrl+p` in OpenCode to list all available actions
-- Report issues: https://github.com/anomalyco/opencode
-- Check OpenCode documentation: https://opencode.ai/docs
-
 ## Quick Start
 
-1. **Use an existing command**: Press `ctrl+p` and select from available commands
-2. **Load a skill**: Skills are automatically loaded when your task matches their description
-3. **Create a new command**: Add a new markdown file to `commands/` with OpenCode-compatible syntax
-4. **Extend a skill**: Modify or add content to relevant skill directories in `skills/`
+- Source `bash_env.sh` in your bashrc
+- Clone this repo into ~/.config/opencode
