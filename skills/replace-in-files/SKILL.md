@@ -69,18 +69,6 @@ replace-in-files -j 4 'foo' 'bar' src/
 
 ## Workflow
 
-1. **Always dry-run first** for broad or risky changes:
-   ```bash
-   replace-in-files -d '<pattern>' '<replacement>' <dirs>
-   ```
-   Outputs a unified diff per modified file. All paths are relative to `$PWD`.
-
-2. Review the output, then run without `-d` to apply.
-
-3. For extra safety, add `-b .bak` to keep backups of every modified file.
-
-### Patch file workflow
-
 Dry-run output is valid unified diff — pipe it to a patch file and apply later
 or share for review:
 
@@ -88,7 +76,7 @@ or share for review:
 # Generate patch (informational messages go to stderr, not into the file)
 replace-in-files -d 'ISL-(\d+)' 'PROJ-$1' src/ > changes.patch
 
-# Review — use the Read tool to inspect changes.patch, not cat
+# Review — use the Read tool to inspect changes.patch
 
 # Apply from the same directory the patch was generated in
 patch -p0 < changes.patch

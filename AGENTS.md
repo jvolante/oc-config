@@ -14,9 +14,10 @@ IMPORTANT: Don't ask explore agents to return the contents of an entire file. If
 # Proactive Behavior
 
 Don't wait to be asked:
-- Use an agent when exploration is needed before implementing
-- Use an agent when building code or running unit tests to summarize failures
+- Use a sub-agent when exploration is needed before implementing
+- Use a sub-agent when building code or running unit tests to summarize failures
 - Use parallel approaches when you see independent subtasks
+- After completing a change to a codebase, ensure packaging, CI, and documentation are all coherent with the change
 
 # Unit Tests
 
