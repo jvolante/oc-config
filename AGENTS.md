@@ -8,6 +8,9 @@ the entire plan. Acknowledge the changes and only state what modifications will 
 
 It's not necessary to provide a detailed breakdown of the work completed unless asked.
 
+Prefer copying a file and making targeted modifications when moving or porting large pieces of code rather than
+rewriting the entire file yourself.
+
 IMPORTANT: Don't set custom timeouts when using the bash tool
 IMPORTANT: Don't ask explore agents to return the contents of an entire file. If you need that, read it yourself.
 
