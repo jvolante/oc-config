@@ -8,9 +8,8 @@ the entire plan. Acknowledge the changes and only state what modifications will 
 
 It's not necessary to provide a detailed breakdown of the work completed unless asked.
 
-Prefer copying a file and making targeted modifications when moving or porting large pieces of code rather than
-rewriting the entire file yourself.
-
+IMPORTANT: Prefer copying a file and making targeted modifications when moving or porting large pieces of code rather than
+rewriting the entire file yourself. DO NOT REWRITE ENTIRE FILES
 IMPORTANT: Don't set custom timeouts when using the bash tool
 IMPORTANT: Don't ask explore agents to return the contents of an entire file. If you need that, read it yourself.
 
@@ -49,6 +48,12 @@ Here are some additional programs in the environment beyond what's installed on 
 - `jaq` : Query engine for YAML, TOML, XML, and CBOR similar to `jq`
 - `sage` : SageMath symbolic math toolkit
 
+# Graphify Knowledge Graph
+
+Many projects under `~/projects/` have a pre-built knowledge graph at `<project-root>/graphify-out/graph.json`. Load the `graphify` skill for full usage instructions — it describes when and how to use it, including when to dispatch the `graph-builder` subagent.
+
+For cross-project work, check and query each project's graph independently from its own root directory.
+
 # Language Specific Guidance
 ## Python Guidance
 
@@ -75,3 +80,4 @@ Here are some additional programs in the environment beyond what's installed on 
 
 - Use `const` and `constexpr` wherever possible
 - prefer `cstdint` types
+- Annotate with `noexcept` and `[[nodiscard]]` and others where relevant

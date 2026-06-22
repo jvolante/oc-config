@@ -43,11 +43,14 @@
     },
     "bash": {
       "command": [
-        "bash-language-server"
+        "bash-language-server",
+        "start"
       ],
       "extensions": [
         ".sh",
-        ".bash"
+        ".bash",
+        ".zsh",
+        ".ksh"
       ]
     },
     "yaml-ls": {
@@ -167,8 +170,15 @@
     }
   },
   "permission": {
+    "skill": {
+      "open-prs": "deny"
+    },
     "external_directory": {
       "/tmp/**": "allow",
+      "/dev/null": "allow",
+      "/dev/stdin": "allow",
+      "/dev/stdout": "allow",
+      "/dev/stderr": "allow",
       "/nix/store/**": "allow",
       "/proc/**": "allow",
       "{env:HOME}/projects/**": "allow"
@@ -194,6 +204,25 @@
     },
     "software-engineer": {
       "model": "{env:OPENCODE_MEDIUM_MODEL}"
+    },
+    "graph-builder": {
+      "model": "{env:OPENCODE_SMALL_MODEL}",
+      "permission": {
+        "skill": "deny"
+      }
+    },
+    "explore": {
+      "permission": {
+        "skill": {
+          "graphify": "allow"
+        },
+        "bash": {
+          "graphify-smart *": "allow"
+        },
+        "task": {
+          "graph-builder *": "allow"
+        }
+      }
     }
   },
   "mcp": {

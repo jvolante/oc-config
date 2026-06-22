@@ -1,5 +1,5 @@
 ---
-description: Always use this agent when fixing linting, or other static analysis issues in a project. Specialized in automated code quality improvements. It's helpful to dispatch many in parallel, one per file that needs corrections. Give it the exact linter command it needs to produce issues for the file it's trying to correct.
+description: _Always_ use this agent when fixing linting, or other static analysis issues in a project. Specialized in automated code quality improvements. It's helpful to dispatch many in parallel, one per file that needs corrections. Give it the exact linter command it needs to produce issues for the file it's trying to correct.
 mode: subagent
 color: "#FFD700"
 permission:

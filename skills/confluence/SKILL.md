@@ -17,12 +17,15 @@ operations read credentials from environment variables — never hardcode them.
 ## Helper Functions (preferred)
 
 ```bash
-# Search pages/content using CQL
+# Search pages/content using CQL — returns a JSON array
 confluence-search '<cql>'
 confluence-search '<cql>' <max_results>   # default 1000
 
 # Get full page content including body HTML
 confluence-page <page-id>
+
+# Get page body as plain text (HTML tags stripped)
+confluence-page-text <page-id>
 
 # List comments on a page
 confluence-comments <page-id>
@@ -37,7 +40,7 @@ confluence-create <SPACE> "<title>" "<body>" [parent-page-id]
 confluence-update <page-id> "<title>" "<body>"
 ```
 
-All helpers emit JSON, so every output can be piped directly into `jq`.
+All helpers emit JSON. `confluence-search` returns a **JSON array**; use `.[].field` or `map(...)` to filter. `confluence-page` and `confluence-page-text` return a single object.
 
 ## Raw API Access via `confluence-curl`
 
@@ -108,20 +111,20 @@ type=page AND space=MRDE AND text~"pilotage" AND contributor=currentUser()
 
 ## jq Filters — Extract Only What You Need
 
-Page bodies are verbose HTML/storage format. Always filter aggressively.
+`confluence-search` returns a JSON array. Always index with `.[].field` or `map(...)`, not `.field` directly.
 
 ```bash
-# Title, space, and URL only
+# Title, space, and URL for each result
 confluence-search 'type=page AND contributor=currentUser()' \
-  | jq '{title, space, url}'
+  | jq '.[] | {title, space, url}'
 
 # Just page IDs (for xargs)
 confluence-search 'type=page AND space=MRDE' \
-  | jq -r '.id'
+  | jq -r '.[].id'
 
-# Page body as plain text (strips HTML tags)
+# Page body as plain text (strips HTML tags) — prefer confluence-page-text
 confluence-page 12345 \
-  | jq -r '.body | gsub("<[^>]+>"; "")'
+  | jq -r '.body | gsub("<[^>]+>"; " ")'
 
 # Comments with author and date only
 confluence-comments 12345 \
@@ -129,25 +132,26 @@ confluence-comments 12345 \
 
 # Pages with their ancestor breadcrumb
 confluence-search 'type=page AND space=MRDE' \
-  | jq '{title, path: (.ancestors | join(" > "))}'
+  | jq '.[] | {title, path: (.ancestors | join(" > "))}'
 ```
 
 ## Chaining Examples
 
+Prefer piping `confluence-search` directly into `confluence-page-text` to avoid a manual search-then-fetch loop.
+
 ```bash
-# Read body of every page you've contributed to in a space
-confluence-search 'type=page AND space=MRDE AND contributor=currentUser()' \
-  | jq -r '.id' \
-  | xargs -I{} bash -c 'confluence-page {}' \
-  | jq '{title, body: (.body | gsub("<[^>]+>"; ""))}'
+# Read plain-text body of every matching page in one pipeline
+confluence-search 'type=page AND space=MRDE AND text~"wire detection"' \
+  | jq -r '.[].id' \
+  | xargs -I{} bash -c 'confluence-page-text {}'
 
 # Find pages mentioning a topic and show their full URL
 confluence-search 'type=page AND text~"wire detection"' \
-  | jq -r '"'"$CONFLUENCE_URL"'\(.url)"'
+  | jq -r '.[] | "'"${CONFLUENCE_URL}"'\(.url)"'
 
 # Get comments on all pages in a space you contributed to
 confluence-search 'type=page AND space=MRDE AND contributor=currentUser()' \
-  | jq -r '.id' \
+  | jq -r '.[].id' \
   | xargs -I{} bash -c 'confluence-comments {}' \
   | jq 'select(.comments | length > 0)'
 ```
@@ -159,8 +163,11 @@ reading pages the body will contain HTML tags. When creating or updating pages,
 pass valid storage format HTML.
 
 ```bash
-# Read — strip tags for plain text summary
-confluence-page 12345 | jq -r '.body | gsub("<[^>]+>"; "")'
+# Read — plain text via confluence-page-text
+confluence-page-text 12345
+
+# Read — manual HTML strip if you already have the page object
+confluence-page 12345 | jq -r '.body | gsub("<[^>]+>"; " ")'
 
 # Create — simple HTML is sufficient
 confluence-create MRDE "My New Page" "<h1>Overview</h1><p>Content here.</p>"
@@ -176,7 +183,7 @@ The typical edit workflow:
 
 ```bash
 # 1. Find the page
-confluence-search 'type=page AND space=MRDE AND text~"pilotage"' | jq '{id, title}'
+confluence-search 'type=page AND space=MRDE AND text~"pilotage"' | jq '.[] | {id, title}'
 
 # 2. Read the current body
 confluence-page 12345 | jq -r '.body'

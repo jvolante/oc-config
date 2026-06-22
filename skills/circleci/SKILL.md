@@ -10,9 +10,30 @@ read credentials from environment variables — never hardcode them.
 
 ## Project Slugs
 
-All project-scoped commands take a slug in the format `github/<org>/<repo>`.
+Project-scoped commands take a slug. The canonical form may be `gh/<org>/<repo>` or
+`github/<org>/<repo>` depending on the instance — **do not hardcode it**.
 
-**Always run `cci-projects` first** to discover the correct slug for the repo you're working in — do not guess or hardcode slugs. The slug for the current git repo can also be resolved automatically with `cci-current`.
+**For the current git repo, use `cci-slug`** (or `cci-current` / `cci-pipeline-status`,
+which call it internally). It parses the origin remote — handling SSH and HTTPS, with or
+without a `.git` suffix, including self-hosted GHE remotes like
+`git@ghe.anduril.dev:org/repo` — and resolves the canonical slug via the API.
+
+Use `cci-projects` only to discover slugs for *other* repos you're not checked out in. Its
+output is a JSON **array**, so consume it directly:
+`cci-projects | jq -r '.[] | select(.url | test("my-repo")) | .slug'`.
+
+## Multi-workflow repos
+
+A single commit usually triggers **several workflows** (e.g. `build-and-test`,
+`build-release`, `build-debug`, `sheath-scan-and-upload`), each with its own jobs and build
+numbers. The same commit subject appears on all of them, so a flat list of builds is
+ambiguous. Two consequences:
+
+- Use `cci-pipeline-status [sha]` to see the full pipeline → workflow → job tree for a
+  commit and map a failing build number back to its workflow.
+- When you only care about the PR-gating workflow, scope log fetching with
+  `cci-failed-logs --workflow build-and-test` so unrelated workflows (sheath, debug builds)
+  don't shadow the failure you want.
 
 ## Helper Functions (preferred)
 
@@ -23,11 +44,20 @@ cci-me
 # List all followed projects
 cci-projects
 
+# Resolve the canonical project slug for the current git repo (handles SSH/HTTPS, GHE)
+cci-slug
+
 # Latest pipeline + workflow statuses for the current git branch (infers slug and branch automatically)
 cci-current
 
+# Full pipeline -> workflow -> job tree for a commit (default: current branch remote HEAD)
+cci-pipeline-status                             # remote HEAD of current branch
+cci-pipeline-status <sha>                       # specific commit
+cci-pipeline-status <sha> <project-slug> [branch]
+
 # Fetch logs for the most recently failed job on the current branch (infers slug and branch automatically)
 cci-failed-logs                                 # uses current git repo and branch
+cci-failed-logs --workflow build-and-test       # scope to one workflow (ignore sheath/debug noise)
 cci-failed-logs <project-slug>                  # specific project, current branch
 cci-failed-logs <project-slug> <branch>         # specific project and branch
 
@@ -45,6 +75,11 @@ cci-log <project-slug> <build-num>
 
 # It's best to dispatch @build-test-summarizer to run cci-failed-logs, cci-log, or cci-wait-on-jobs for you so it will
 # summarize the output.
+#
+# When dispatching the summarizer: give it the EXACT build numbers and the expected workflow
+# name (get them from cci-pipeline-status first). Ask it to report verbatim error lines plus
+# the commit SHA it observed, and to NOT synthesize a root cause. On multi-workflow repos it
+# can otherwise grab logs from the wrong workflow (e.g. sheath) and misreport which jobs failed.
 
 # Recent builds across all projects
 cci-recent [limit]                              # default 25
@@ -161,7 +196,8 @@ cci-workflow <workflow-id> \
 
 - **Never omit `jq` filtering** — build log output is extremely verbose
 - **Don't mix up v1.1 and v2** — logs and build metadata are v1.1 only; pipeline/workflow control is v2
-- **Project slugs must be `github/<org>/<repo>`** — always discover with `cci-projects`, never hardcode
+- **Project slugs are not always `github/<org>/<repo>`** — the canonical form may be `gh/<org>/<repo>`; resolve with `cci-slug` (current repo) or `cci-projects` (other repos), never hardcode
+- **On multi-workflow repos, verify a build's workflow before trusting it** — one commit triggers several workflows with the same subject; use `cci-pipeline-status` and `cci-failed-logs --workflow <name>` to scope correctly
 - **`cci-rerun` reruns from failed jobs** — use `cci-trigger` to start a fresh pipeline from scratch
 - **Don't use raw `curl` directly** — use `cci-curl` so auth and the base URL are handled consistently
 - **Workflow IDs are UUIDs** — get them from `cci-builds` output (`.workflow_id` field)

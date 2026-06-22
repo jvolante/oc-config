@@ -1,5 +1,5 @@
 ---
-description: execute the current plan
+description: execute the current plan, good for simple plans
 agent: build
 ---
 

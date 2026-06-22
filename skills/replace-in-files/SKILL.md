@@ -5,26 +5,20 @@ name: replace-in-files
 
 # replace-in-files
 
-Perform regex find-and-replace across an entire directory tree. Uses ripgrep
-for file discovery (binary files and `.gitignore` entries are skipped
-automatically) and `sd` for replacement (Rust regex, full PCRE-like syntax).
-Files are processed in parallel.
-
-## Script Location
-
-```
-/home/jvolante/jvscripts/replace-in-files
-```
+Perform find-and-replace across an entire directory tree. Uses ripgrep for
+file discovery (binary files and `.gitignore` entries are skipped
+automatically) and `perl -pe` for substitution. Files are processed in
+parallel.
 
 ## Usage
 
 ```
-replace-in-files [OPTIONS] <pattern> <replacement> <directories...>
+replace-in-files [OPTIONS] <perl-script> <directories...>
 ```
 
-Pattern and replacement use **Rust regex** syntax — `\d`, `\w`, `\b`, `\s`,
-`(?:...)`, lookaheads, and named captures all work. Capture groups are
-referenced in the replacement as `$1`, `$2`, or `${name}`.
+The `perl-script` argument is passed directly to `perl -pe`, giving access to
+the full perl substitution syntax: PCRE patterns, `/e` eval, helper subs,
+named captures, and more.
 
 ## Options
 
@@ -40,31 +34,40 @@ referenced in the replacement as `$1`, `$2`, or `${name}`.
 
 ```bash
 # Rename a symbol in all Python files
-replace-in-files -t py 'old_name' 'new_name' src/
+replace-in-files -t py 's/old_name/new_name/g' src/
 
 # Word boundary — avoids partial matches (e.g. won't touch 'old_names')
-replace-in-files '\bold_name\b' 'new_name' src/
+replace-in-files 's/\bold_name\b/new_name/g' src/
+
+# Case-insensitive
+replace-in-files 's/\bcolour\b/color/gi' src/
 
 # Capture group — rename issue prefix
-replace-in-files 'ISL-(\d+)' 'PROJ-$1' .
+replace-in-files 's/ISL-(\d+)/PROJ-$1/g' .
 
 # Named capture
-replace-in-files '(?P<prefix>ISL)-(\d+)' 'PROJ-$2' .
+replace-in-files 's/(?<id>\d+)/ID_$+{id}/g' .
+
+# Evaluate replacement as perl expression (double all integers)
+replace-in-files 's/\b(\d+)\b/$1 * 2/ge' src/
+
+# Case-preserving substitution via helper sub
+replace-in-files 'sub fc { $_[0] eq uc $_[0] ? uc $_[1] : $_[0] eq ucfirst lc $_[0] ? ucfirst $_[1] : $_[1] } s/\bcolour\b/fc($&, "color")/gie' src/
 
 # Dry-run first to review changes
-replace-in-files -d 'foo' 'bar' src/ lib/
+replace-in-files -d 's/foo/bar/g' src/ lib/
 
 # Multiple file types
-replace-in-files -t cpp -t hpp 'OldClass' 'NewClass' src/
+replace-in-files -t cpp -t hpp 's/OldClass/NewClass/g' src/
 
 # All text files under current directory
-replace-in-files '2024' '2025' ./
+replace-in-files 's/2024/2025/g' ./
 
 # With backup files
-replace-in-files -b .bak 'old' 'new' src/
+replace-in-files -b .bak 's/old/new/g' src/
 
 # Limit parallelism
-replace-in-files -j 4 'foo' 'bar' src/
+replace-in-files -j 4 's/foo/bar/g' src/
 ```
 
 ## Workflow
@@ -74,7 +77,7 @@ or share for review:
 
 ```bash
 # Generate patch (informational messages go to stderr, not into the file)
-replace-in-files -d 'ISL-(\d+)' 'PROJ-$1' src/ > changes.patch
+replace-in-files -d 's/ISL-(\d+)/PROJ-$1/g' src/ > changes.patch
 
 # Review — use the Read tool to inspect changes.patch
 
@@ -85,20 +88,22 @@ patch -p0 < changes.patch
 patch -p0 -R < changes.patch
 ```
 
-## Regex Tips
+## Perl Script Tips
 
-- `\b` — word boundary (avoids partial identifier matches)
-- `\d+` — one or more digits
-- `\w+` — word characters (letters, digits, underscore)
-- `(?i)` — case-insensitive flag at the start of the pattern
-- Alternate delimiter not needed — pattern and replacement are separate args,
-  no `s/.../.../{flags}` wrapper required
-- To match a literal `.` or `(`, escape it: `\\.`, `\\(`
+- `s/pat/rep/g` — replace all occurrences per line
+- `s/pat/rep/gi` — case-insensitive
+- `s/pat/rep/ge` — evaluate `rep` as a perl expression
+- `\b` — word boundary
+- `$1`, `$2` — capture group backreferences
+- `$&` — the full match
+- `$+{name}` — named capture (`(?<name>...)`)
+- Multiple statements separated by `;` — define helper subs before the substitution
+- `(?i)` inline flag works too: `'s/(?i)colour/color/g'`
 
 ## Common Mistakes to Avoid
 
 - **Always dry-run first** — in-place changes have no built-in undo
-- **Quote both arguments** — prevents the shell from expanding `$1`, `*`, `\d`, etc.
-- **Use `\b` for identifier renames** — bare `'Foo'` will also match `FooBar`
+- **Single-quote the script** — prevents the shell from expanding `$1`, `$&`, `\d`, etc. before perl sees them
+- **Use `\b` for identifier renames** — bare `'s/Foo/Bar/g'` will also match `FooBar`
 - **Use `-t` to narrow scope** — avoids accidentally modifying generated files or lock files
-- **`$1` in the replacement must be single-quoted or escaped** — `"PROJ-$1"` would expand `$1` as a shell variable before `sd` sees it
+- **`/g` is not implicit** — unlike `sed`, perl won't replace all occurrences without the `g` flag

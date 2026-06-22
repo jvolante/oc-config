@@ -105,12 +105,12 @@ open-prs --json | jq -r '.[] | select(.repository.nameWithOwner == "imaging/copi
 open-prs --json | jq -r '
   [.[] | .commits.nodes[0].commit.statusCheckRollup.contexts.nodes // [] | .[] |
    select(.state? == "FAILURE") | .circleci_slug] | unique[] | select(. != null)
-' | xargs -I{} bash -c 'source cci-builds {} 1 5'
+' | xargs -I{} cci-builds {} 1 5
 
 # Rerun failed workflows for a specific PR's failing CCI jobs
 open-prs --json | jq -r '
   .[] | select(.number == 123) |
   .commits.nodes[0].commit.statusCheckRollup.contexts.nodes // [] | .[] |
   select(.state? == "FAILURE") | .circleci_slug
-' | sort -u | xargs -I{} bash -c 'source cci-builds {} 1 1 | jq -r .workflow_id | xargs cci-rerun'
+' | sort -u | xargs -I{} bash -c 'cci-builds {} 1 1 | jq -r .workflow_id | xargs cci-rerun'
 ```
