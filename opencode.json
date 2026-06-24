@@ -205,6 +205,9 @@
     "software-engineer": {
       "model": "{env:OPENCODE_MEDIUM_MODEL}"
     },
+    "code-reviewer": {
+      "model": "{env:OPENCODE_LARGE_MODEL_ALT}"
+    },
     "graph-builder": {
       "model": "{env:OPENCODE_SMALL_MODEL}",
       "permission": {
