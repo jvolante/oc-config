@@ -39,20 +39,46 @@ Check whether `<path>/graphify-out/graph.json` already exists.
 
 ```bash
 GRAPHIFY_BIN=$(which graphify 2>/dev/null)
+PYTHON=""
+GRAPHIFY_PYTHONPATH=""
 if [ -n "$GRAPHIFY_BIN" ]; then
-    PYTHON=$(head -1 "$GRAPHIFY_BIN" | tr -d '#!')
+    # On NixOS, graphify is a bash wrapper that exec's an inner .graphify-wrapped
+    # script at an absolute Nix store path. The inner script's shebang has the real
+    # Python interpreter, and its body sets up site-packages via site.addsitedir —
+    # so we must also capture those paths as PYTHONPATH.
+    WRAPPED=$(grep -oP 'exec -a "\$0" "\K[^"]+' "$GRAPHIFY_BIN" 2>/dev/null)
+    if [ -n "$WRAPPED" ] && [ -f "$WRAPPED" ]; then
+        PYTHON=$(head -1 "$WRAPPED" | tr -d '#!' | awk '{print $1}')
+        GRAPHIFY_PYTHONPATH=$(grep -oP "'\K/[^']+" "$WRAPPED" | grep site-packages | tr '\n' ':')
+        GRAPHIFY_PYTHONPATH="${GRAPHIFY_PYTHONPATH%:}"
+    fi
+    # Non-Nix fallback: shebang on the binary itself may be a direct python path.
+    if [ -z "$PYTHON" ]; then
+        PYTHON=$(head -1 "$GRAPHIFY_BIN" | tr -d '#!' | awk '{print $1}')
+    fi
+    # Reject if not a plausible absolute path to a python binary.
     case "$PYTHON" in
-        *[!a-zA-Z0-9/_.-]*) PYTHON="python3" ;;
+        /*/python*) ;;
+        *) PYTHON="" ;;
     esac
-else
-    PYTHON="python3"
 fi
-"$PYTHON" -c "import graphify" 2>/dev/null || "$PYTHON" -m pip install graphifyy -q 2>/dev/null || "$PYTHON" -m pip install graphifyy -q --break-system-packages 2>&1 | tail -3
+# Final fallback: plain python3 on PATH.
+[ -z "$PYTHON" ] && PYTHON="python3"
+PYTHONPATH="$GRAPHIFY_PYTHONPATH" "$PYTHON" -c "import graphify" 2>/dev/null || "$PYTHON" -m pip install graphifyy -q 2>/dev/null || "$PYTHON" -m pip install graphifyy -q --break-system-packages 2>&1 | tail -3
 mkdir -p graphify-out
-"$PYTHON" -c "import sys; open('graphify-out/.graphify_python', 'w').write(sys.executable)"
+PYTHONPATH="$GRAPHIFY_PYTHONPATH" "$PYTHON" -c "import sys; open('graphify-out/.graphify_python', 'w').write(sys.executable)"
+# Persist PYTHONPATH so subsequent steps can restore it (needed on NixOS).
+printf '%s' "$GRAPHIFY_PYTHONPATH" > graphify-out/.graphify_pythonpath
 ```
 
-**In every subsequent bash block, replace `python3` with `$(cat graphify-out/.graphify_python)`.**
+**In every subsequent bash block:**
+- Replace `python3` with `$(cat graphify-out/.graphify_python)`
+- Prefix each invocation with `PYTHONPATH=$(cat graphify-out/.graphify_pythonpath 2>/dev/null)`
+
+So the pattern becomes:
+```bash
+PYTHONPATH=$(cat graphify-out/.graphify_pythonpath 2>/dev/null) $(cat graphify-out/.graphify_python) -c "..."
+```
 
 ---
 
@@ -63,7 +89,7 @@ Run from the project root (`<path>`).
 ### Step 2 — Detect files
 
 ```bash
-$(cat graphify-out/.graphify_python) -c "
+PYTHONPATH=$(cat graphify-out/.graphify_pythonpath 2>/dev/null) $(cat graphify-out/.graphify_python) -c "
 import json
 from graphify.detect import detect
 from pathlib import Path
@@ -99,7 +125,7 @@ Run Part A (AST) and Part B (semantic) in parallel — dispatch all in the same 
 #### Part A — AST extraction (code files)
 
 ```bash
-$(cat graphify-out/.graphify_python) -c "
+PYTHONPATH=$(cat graphify-out/.graphify_pythonpath 2>/dev/null) $(cat graphify-out/.graphify_python) -c "
 import sys, json
 from graphify.extract import collect_files, extract
 from pathlib import Path
@@ -126,7 +152,7 @@ else:
 **Step B0 — Check cache**
 
 ```bash
-$(cat graphify-out/.graphify_python) -c "
+PYTHONPATH=$(cat graphify-out/.graphify_pythonpath 2>/dev/null) $(cat graphify-out/.graphify_python) -c "
 import json
 from graphify.cache import check_semantic_cache
 from pathlib import Path
@@ -189,7 +215,7 @@ Output exactly this JSON (no other text):
 **Step B3 — Collect, cache, and merge**
 
 ```bash
-$(cat graphify-out/.graphify_python) -c "
+PYTHONPATH=$(cat graphify-out/.graphify_pythonpath 2>/dev/null) $(cat graphify-out/.graphify_python) -c "
 import json
 from graphify.cache import save_semantic_cache
 from pathlib import Path
@@ -201,7 +227,7 @@ print(f'Cached {saved} files')
 ```
 
 ```bash
-$(cat graphify-out/.graphify_python) -c "
+PYTHONPATH=$(cat graphify-out/.graphify_pythonpath 2>/dev/null) $(cat graphify-out/.graphify_python) -c "
 import json
 from pathlib import Path
 
@@ -230,7 +256,7 @@ Clean up: `rm -f graphify-out/.graphify_cached.json graphify-out/.graphify_uncac
 #### Part C — Merge AST + semantic
 
 ```bash
-$(cat graphify-out/.graphify_python) -c "
+PYTHONPATH=$(cat graphify-out/.graphify_pythonpath 2>/dev/null) $(cat graphify-out/.graphify_python) -c "
 import sys, json
 from pathlib import Path
 
@@ -260,7 +286,7 @@ print(f'Merged: {len(merged_nodes)} nodes, {len(merged[\"edges\"])} edges')
 
 ```bash
 mkdir -p graphify-out
-$(cat graphify-out/.graphify_python) -c "
+PYTHONPATH=$(cat graphify-out/.graphify_pythonpath 2>/dev/null) $(cat graphify-out/.graphify_python) -c "
 import sys, json
 from graphify.build import build_from_json
 from graphify.cluster import cluster, score_all
@@ -307,7 +333,7 @@ Replace INPUT_PATH with the actual path. If this prints `ERROR: Graph is empty`,
 Read `.graphify_analysis.json`. For each community key, look at its node labels and write a 2-5 word plain-language name (e.g. "Auth Pipeline", "Data Layer").
 
 ```bash
-$(cat graphify-out/.graphify_python) -c "
+PYTHONPATH=$(cat graphify-out/.graphify_pythonpath 2>/dev/null) $(cat graphify-out/.graphify_python) -c "
 import sys, json
 from graphify.build import build_from_json
 from graphify.cluster import score_all
@@ -339,7 +365,7 @@ Replace `LABELS_DICT` with the actual dict and INPUT_PATH with the actual path.
 ### Step 6 — Generate HTML
 
 ```bash
-$(cat graphify-out/.graphify_python) -c "
+PYTHONPATH=$(cat graphify-out/.graphify_pythonpath 2>/dev/null) $(cat graphify-out/.graphify_python) -c "
 import sys, json
 from graphify.build import build_from_json
 from graphify.export import to_html
@@ -364,7 +390,7 @@ else:
 ### Step 7 — Save manifest and clean up
 
 ```bash
-$(cat graphify-out/.graphify_python) -c "
+PYTHONPATH=$(cat graphify-out/.graphify_pythonpath 2>/dev/null) $(cat graphify-out/.graphify_python) -c "
 import json
 from pathlib import Path
 from datetime import datetime, timezone
@@ -397,7 +423,7 @@ Run from the project root (`<path>`). Assumes `graphify-out/graph.json` already 
 ### Step U1 — Detect changed files
 
 ```bash
-$(cat graphify-out/.graphify_python) -c "
+PYTHONPATH=$(cat graphify-out/.graphify_pythonpath 2>/dev/null) $(cat graphify-out/.graphify_python) -c "
 import sys, json
 from graphify.detect import detect_incremental
 from pathlib import Path
@@ -425,7 +451,7 @@ Replace INPUT_PATH with the actual path. If it exits 0 with "Nothing to update",
 ### Step U2 — Check if code-only
 
 ```bash
-$(cat graphify-out/.graphify_python) -c "
+PYTHONPATH=$(cat graphify-out/.graphify_pythonpath 2>/dev/null) $(cat graphify-out/.graphify_python) -c "
 import json
 from pathlib import Path
 
@@ -448,7 +474,7 @@ For AST on changed files only, pass just the changed code files to `extract()` r
 Save old graph first: `cp graphify-out/graph.json graphify-out/.graphify_old.json`
 
 ```bash
-$(cat graphify-out/.graphify_python) -c "
+PYTHONPATH=$(cat graphify-out/.graphify_pythonpath 2>/dev/null) $(cat graphify-out/.graphify_python) -c "
 import sys, json
 from graphify.build import build_from_json
 from graphify.export import to_json
@@ -472,7 +498,7 @@ Then run Steps 4–7 on the merged graph.
 After Step 4, show the diff:
 
 ```bash
-$(cat graphify-out/.graphify_python) -c "
+PYTHONPATH=$(cat graphify-out/.graphify_pythonpath 2>/dev/null) $(cat graphify-out/.graphify_python) -c "
 import json
 from graphify.analyze import graph_diff
 from graphify.build import build_from_json
