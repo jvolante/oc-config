@@ -36,6 +36,21 @@ In all query sections below, run commands from the project root directory (the d
 
 All commands accept an optional `--graph <path/to/graph.json>` flag to point at a graph that is not in the current directory tree.
 
+**Cross-repo queries:** when your working directory is repo A but you want to query repo B's graph, always pass `--graph` explicitly — `graphify-smart` looks for `graphify-out/graph.json` relative to the current directory and will fail or query the wrong graph otherwise:
+
+```bash
+graphify-smart query "QUESTION" \
+  --graph /path/to/other-repo/graphify-out/graph.json
+```
+
+**Preflight (all subcommands):** confirm the graph exists first. If it fails, stop and dispatch the `graph-builder` subagent with the current directory path to build one.
+
+```bash
+test -f graphify-out/graph.json || { printf 'ERROR: No graph found.\n' >&2; exit 1; }
+```
+
+In every subcommand below, replace the uppercase placeholders (`QUESTION`, `NODE_A`, `NODE_NAME`, …) with the user's actual values.
+
 ---
 
 ## For /graphify query
@@ -47,19 +62,11 @@ Two traversal modes - choose based on the question:
 | BFS (default) | _(none)_ | "What is X connected to?" - broad context, nearest neighbors first |
 | DFS | `--dfs` | "How does X reach Y?" - trace a specific chain or dependency path |
 
-First check the graph exists:
-
-```bash
-test -f graphify-out/graph.json || { printf 'ERROR: No graph found.\n' >&2; exit 1; }
-```
-
-If it fails, stop and dispatch the `graph-builder` subagent with the current directory path to build one.
-
 ```bash
 graphify-smart query "QUESTION" [--dfs] [--budget N] [--graph path/to/graph.json]
 ```
 
-Replace `QUESTION` with the user's actual question. Add `--dfs` for chain-tracing questions, `--budget N` to cap output tokens (default 2000).
+Add `--dfs` for chain-tracing questions, `--budget N` to cap output tokens (default 2000).
 
 Output lines have two forms — filter them as needed:
 
@@ -100,19 +107,9 @@ Replace `QUESTION` with the question, `ANSWER` with your full answer text, `NODE
 
 Find the shortest path between two named concepts in the graph.
 
-First check the graph exists:
-
-```bash
-test -f graphify-out/graph.json || { printf 'ERROR: No graph found.\n' >&2; exit 1; }
-```
-
-If it fails, dispatch the `graph-builder` subagent with the current directory path to build one.
-
 ```bash
 graphify-smart path "NODE_A" "NODE_B" [--graph path/to/graph.json]
 ```
-
-Replace `NODE_A` and `NODE_B` with the actual concept names from the user.
 
 Example output:
 
@@ -137,19 +134,9 @@ graphify save-result --question "Path from NODE_A to NODE_B" --answer "ANSWER" -
 
 Give a plain-language explanation of a single node — everything directly connected to it.
 
-First check the graph exists:
-
-```bash
-test -f graphify-out/graph.json || { printf 'ERROR: No graph found.\n' >&2; exit 1; }
-```
-
-If it fails, dispatch the `graph-builder` subagent with the current directory path to build one.
-
 ```bash
 graphify-smart explain "NODE_NAME" [--graph path/to/graph.json]
 ```
-
-Replace `NODE_NAME` with the concept the user asked about.
 
 Example output:
 
