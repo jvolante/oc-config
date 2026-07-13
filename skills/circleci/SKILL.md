@@ -13,27 +13,17 @@ read credentials from environment variables — never hardcode them.
 Project-scoped commands take a slug. The canonical form may be `gh/<org>/<repo>` or
 `github/<org>/<repo>` depending on the instance — **do not hardcode it**.
 
-**For the current git repo, use `cci-slug`** (or `cci-current` / `cci-pipeline-status`,
-which call it internally). It parses the origin remote — handling SSH and HTTPS, with or
-without a `.git` suffix, including self-hosted GHE remotes like
-`git@ghe.anduril.dev:org/repo` — and resolves the canonical slug via the API.
-
-Use `cci-projects` only to discover slugs for *other* repos you're not checked out in. Its
-output is a JSON **array**, so consume it directly:
-`cci-projects | jq -r '.[] | select(.url | test("my-repo")) | .slug'`.
+- Current git repo: use `cci-slug` (parses the origin remote — SSH/HTTPS, optional `.git`, self-hosted GHE — and resolves via the API). `cci-current` / `cci-pipeline-status` call it internally.
+- Other repos: `cci-projects | jq -r '.[] | select(.url | test("my-repo")) | .slug'` (output is a JSON array, consume directly).
 
 ## Multi-workflow repos
 
-A single commit usually triggers **several workflows** (e.g. `build-and-test`,
-`build-release`, `build-debug`, `sheath-scan-and-upload`), each with its own jobs and build
-numbers. The same commit subject appears on all of them, so a flat list of builds is
-ambiguous. Two consequences:
+A single commit usually triggers **several workflows** (`build-and-test`,
+`build-release`, `build-debug`, `sheath-scan-and-upload`, …), all sharing the same
+commit subject, so a flat build list is ambiguous.
 
-- Use `cci-pipeline-status [sha]` to see the full pipeline → workflow → job tree for a
-  commit and map a failing build number back to its workflow.
-- When you only care about the PR-gating workflow, scope log fetching with
-  `cci-failed-logs --workflow build-and-test` so unrelated workflows (sheath, debug builds)
-  don't shadow the failure you want.
+- `cci-pipeline-status [sha]` — full pipeline → workflow → job tree; maps a failing build number back to its workflow.
+- `cci-failed-logs --workflow build-and-test` — scope log fetching to the PR-gating workflow so unrelated ones don't shadow the failure.
 
 ## Helper Functions (preferred)
 
