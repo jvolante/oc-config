@@ -40,13 +40,12 @@ confluence-create <SPACE> "<title>" "<body>" [parent-page-id]
 confluence-update <page-id> "<title>" "<body>"
 ```
 
-All helpers emit JSON. `confluence-search` returns a **JSON array**; use `.[].field` or `map(...)` to filter. `confluence-page` and `confluence-page-text` return a single object.
+All helpers emit JSON. `confluence-search` returns a **JSON array** (index with `.[].field` or `map(...)`, never `.field`); `confluence-page` and `confluence-page-text` return a single object.
 
 ## Raw API Access via `confluence-curl`
 
 For endpoints the named helpers don't cover, use `confluence-curl`. It handles
 auth and prepends `$CONFLUENCE_URL/rest/api/` — pass only the endpoint path.
-Flags can appear before or after the endpoint.
 
 ```bash
 # GET
@@ -111,8 +110,6 @@ type=page AND space=MRDE AND text~"pilotage" AND contributor=currentUser()
 
 ## jq Filters — Extract Only What You Need
 
-`confluence-search` returns a JSON array. Always index with `.[].field` or `map(...)`, not `.field` directly.
-
 ```bash
 # Title, space, and URL for each result
 confluence-search 'type=page AND contributor=currentUser()' \
@@ -158,39 +155,19 @@ confluence-search 'type=page AND space=MRDE AND contributor=currentUser()' \
 
 ## Page Body Format
 
-Confluence pages use **storage format** (a subset of XHTML) for the body. When
-reading pages the body will contain HTML tags. When creating or updating pages,
-pass valid storage format HTML.
+Bodies use **storage format** (a subset of XHTML). Reads return HTML tags;
+creates/updates take valid storage-format HTML.
 
 ```bash
-# Read — plain text via confluence-page-text
-confluence-page-text 12345
-
-# Read — manual HTML strip if you already have the page object
-confluence-page 12345 | jq -r '.body | gsub("<[^>]+>"; " ")'
-
-# Create — simple HTML is sufficient
-confluence-create MRDE "My New Page" "<h1>Overview</h1><p>Content here.</p>"
-
-# Create under a parent page
+# Create (optionally under a parent page id)
+confluence-create MRDE "My New Page" "<h1>Overview</h1><p>Content.</p>"
 confluence-create MRDE "Sub Page" "<p>Content.</p>" 451848824
 
-# Update — confluence-update fetches the current version automatically
+# Update — fetches current version automatically
 confluence-update 12345 "My Page" "<h1>Updated</h1><p>New content.</p>"
 ```
 
-The typical edit workflow:
-
-```bash
-# 1. Find the page
-confluence-search 'type=page AND space=MRDE AND text~"pilotage"' | jq '.[] | {id, title}'
-
-# 2. Read the current body
-confluence-page 12345 | jq -r '.body'
-
-# 3. Write the updated body, then apply
-confluence-update 12345 "Page Title" "<p>Updated content.</p>"
-```
+Typical edit workflow: `confluence-search` to find the id → `confluence-page … | jq -r '.body'` to read the current body → `confluence-update` to apply.
 
 ## Common Mistakes to Avoid
 
