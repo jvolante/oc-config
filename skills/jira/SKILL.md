@@ -5,8 +5,7 @@ name: jira
 
 # /jira
 
-Interact with Jira using the REST API directly via `curl` and `jq`. All operations
-read credentials from environment variables — never hardcode them.
+Interact with Jira via the REST API using `jira-curl` and `jq`. `jira-curl` takes care of authentication for you. NEVER use raw curl.
 
 ## Environment Variables
 
@@ -20,6 +19,10 @@ read credentials from environment variables — never hardcode them.
 # Search across all projects — accepts any JQL
 jira-query '<jql>'
 jira-query '<jql>' <max_results>   # default 1000
+
+# Your own open tickets (non-Done), optionally scoped to a project
+jira-mine
+jira-mine ISL
 
 # Full detail on one issue
 jira-issue <KEY>
@@ -40,7 +43,20 @@ jira-comment <KEY> "<text>"
 jira-create <PROJECT> <TYPE> "<summary>" ["<description>"]
 ```
 
-All helpers emit JSON, so every output can be piped directly into `jq`.
+## Output format — IMPORTANT
+
+`jira-query`, `jira-mine`, `jira-epic-issues`, and `jira-sprint-issues` all return
+a **flat JSON array** of objects. Always pipe with `.[]` — never `.issues[]`:
+
+```bash
+jira-query '...' | jq -r '.[] | .key'          # correct
+jira-mine        | jq -r '.[] | .key'          # correct
+jira-query '...' | jq -r '.issues[] | .key'    # WRONG — .issues does not exist
+```
+
+Each object has: `key`, `type`, `summary`, `status`, `priority`, `assignee`.
+
+`jira-issue`, `jira-comments`, `jira-transitions` return a single object — no array wrapper.
 
 ## Raw API Access via `jira-curl`
 
@@ -119,17 +135,17 @@ reporter = currentUser() AND status != Done
 
 ## jq Filters — Extract Only What You Need
 
-Always filter curl output with `jq` to avoid overwhelming context with raw API responses.
-The Jira REST API returns large JSON objects; pipe aggressively.
-
 ```bash
-# Keys and statuses from a search
+# Keys and statuses from jira-query / jira-mine (flat array — use .[])
 jira-query 'assignee = currentUser()' \
-  | jq '{key, summary, status}'
+  | jq '.[] | {key, summary, status}'
 
 # Just the keys as plain text (for xargs)
 jira-query 'assignee = currentUser() AND status != Done' \
-  | jq -r '.key'
+  | jq -r '.[] | .key'
+
+# jira-mine with project filter
+jira-mine ISL | jq -r '.[] | "\(.key)\t\(.summary)"'
 
 # Comments — skip issues with no comments
 jira-comments TAG-469 \
@@ -143,7 +159,7 @@ jira-transitions TAG-469 \
 jira-create TAG Task "My ticket" \
   | jq '{key, url}'
 
-# Raw search with custom fields via jira-curl
+# Raw search with custom fields via jira-curl (note: raw curl uses .issues[])
 jira-curl search \
   -G \
   --data-urlencode 'jql=assignee = currentUser()' \
@@ -156,30 +172,30 @@ jira-curl search \
 ```bash
 # Print comments on every open ticket
 jira-query 'assignee = currentUser() AND status != Done' \
-  | jq -r '.key' \
+  | jq -r '.[] | .key' \
   | xargs -I{} bash -c 'jira-comments {}'
 
 # Show only tickets that have comments
 jira-query 'assignee = currentUser()' \
-  | jq -r '.key' \
+  | jq -r '.[] | .key' \
   | xargs -I{} bash -c 'jira-comments {}' \
   | jq 'select(.comments | length > 0)'
 
 # Transition all In Progress tickets to Done
 jira-query 'assignee = currentUser() AND status = "In Progress"' \
-  | jq -r '.key' \
+  | jq -r '.[] | .key' \
   | xargs -I{} bash -c 'jira-transition {} done'
 
 # Post a comment on every Committed epic
 jira-query 'assignee = currentUser() AND status = Committed AND issuetype = Epic' \
-  | jq -r '.key' \
+  | jq -r '.[] | .key' \
   | xargs -I{} bash -c 'jira-comment {} "Still on track."'
 ```
 
 ## Changing Ticket Status
 
-Status changes require a transition ID, not a status name. Always fetch valid
-transitions first — available transitions depend on the issue's current status.
+Fetch valid transitions first — available transitions depend on the issue's
+current status.
 
 ```bash
 # Step 1 — see what transitions are available
@@ -198,7 +214,7 @@ jira-issue TAG-469 | jq '{key, status}'
 ## Creating Issues
 
 ```bash
-# Using the helper
+# Using the helper (simple cases)
 jira-create TAG Task "My new task" "Optional description"
 
 # Via jira-curl (when you need fields jira-create doesn't expose)
@@ -213,20 +229,54 @@ jira-curl -X POST \
   | jq '{key, url: ("'"$JIRA_URL"'/browse/" + .key)}'
 ```
 
+## Issue Hierarchy: Epics, Tasks, Sub-tasks
+
+Jira uses two distinct parent-child mechanisms — use the right one:
+
+| Relationship | Field to set | Value |
+|---|---|---|
+| Task/Story belongs to an Epic | `customfield_10100` (Epic Link) | Epic key string, e.g. `"ISL-1181"` |
+| Sub-task belongs to a Task | `parent` | `{key: "ISL-1459"}` object |
+
+```bash
+# Create a Task linked to an epic
+jira-curl -X POST -d "$(jq -n \
+  --arg proj "ISL" --arg summary "My task" --arg epic "ISL-100" \
+  '{fields: {project: {key: $proj}, issuetype: {id: "10003"},
+    summary: $summary, customfield_10100: $epic}}')" issue \
+  | jq '{key}'
+
+# Create a Sub-task under a Task (use issuetype id "10004", set parent key)
+jira-curl -X POST -d "$(jq -n \
+  --arg proj "ISL" --arg parent "ISL-200" --arg summary "My subtask" \
+  '{fields: {project: {key: $proj}, issuetype: {id: "10004"},
+    parent: {key: $parent}, summary: $summary}}')" issue \
+  | jq '{key}'
+```
+
+**Required custom fields:** Some projects require extra fields on Tasks (e.g. "Code Tier")
+that are NOT required on Sub-tasks. If a Task creation returns
+`{"errors":{"customfield_XXXXX":"Field X is required"}}`, probe an existing issue
+from that project to find the value to use:
+
+```bash
+# Find the required field value from an existing issue
+jira-curl issue/ISL-1181 | jq '.fields.customfield_52408'
+# Then add it to your creation payload:
+# customfield_52408: {id: "84852"}
+```
+
+Sub-task creation typically does not require project-specific custom fields.
+
 ## Summarizing Action Items from Comments
 
-When asked to summarize action items from comments across multiple tickets:
-
-1. Fetch all open tickets with `jira-query`
-2. Pipe keys to `jira-comments` via `xargs`
-3. Filter to only tickets with comments using `jq 'select(.comments | length > 0)'`
-4. Read each comment body and identify: requests, blockers, open questions, or
-   explicit asks directed at the assignee
-5. Group by ticket key and present as a concise bullet list
+Fetch open tickets, filter to those with comments, then read each body for
+requests, blockers, open questions, or explicit asks directed at the assignee.
+Group by ticket key and present as a concise bullet list.
 
 ```bash
 jira-query 'assignee = currentUser() AND status != Done' \
-  | jq -r '.key' \
+  | jq -r '.[] | .key' \
   | xargs -I{} bash -c 'jira-comments {}' \
   | jq 'select(.comments | length > 0)'
 ```
@@ -242,3 +292,5 @@ jira-query 'assignee = currentUser() AND status != Done' \
   `jira-issue <KEY> | jq '{key, status}'` to confirm
 - **Don't use raw `curl` directly** — use `jira-curl` so auth and the base URL
   are handled consistently
+- **jira-query / jira-mine return `.[]` not `.issues[]`** — the helpers normalise
+  the Jira envelope; only raw `jira-curl search` output needs `.issues[]`
