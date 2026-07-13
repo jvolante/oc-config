@@ -16,9 +16,8 @@ parallel.
 replace-in-files [OPTIONS] <perl-script> <directories...>
 ```
 
-The `perl-script` argument is passed directly to `perl -pe`, giving access to
-the full perl substitution syntax: PCRE patterns, `/e` eval, helper subs,
-named captures, and more.
+The `perl-script` argument is passed directly to `perl -pe` — full perl
+substitution syntax (PCRE patterns, `/e` eval, helper subs, named captures).
 
 ## Options
 
@@ -90,15 +89,9 @@ patch -p0 -R < changes.patch
 
 ## Perl Script Tips
 
-- `s/pat/rep/g` — replace all occurrences per line
-- `s/pat/rep/gi` — case-insensitive
-- `s/pat/rep/ge` — evaluate `rep` as a perl expression
-- `\b` — word boundary
-- `$1`, `$2` — capture group backreferences
-- `$&` — the full match
-- `$+{name}` — named capture (`(?<name>...)`)
-- Multiple statements separated by `;` — define helper subs before the substitution
-- `(?i)` inline flag works too: `'s/(?i)colour/color/g'`
+- `$1`, `$2` — capture group backreferences; `$&` — full match; `$+{name}` — named capture (`(?<name>...)`)
+- Define helper subs (separated by `;`) before the substitution
+- `(?i)` inline flag works in place of the `/i` modifier
 
 ## Common Mistakes to Avoid
 
