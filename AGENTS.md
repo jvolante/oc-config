@@ -10,8 +10,8 @@ It's not necessary to provide a detailed breakdown of the work completed unless 
 
 IMPORTANT: Prefer copying a file and making targeted modifications when moving or porting large pieces of code rather than
 rewriting the entire file yourself. DO NOT REWRITE ENTIRE FILES
-IMPORTANT: Don't set custom timeouts when using the bash tool
 IMPORTANT: Don't ask explore agents to return the contents of an entire file. If you need that, read it yourself.
+IMPORTANT: _Never_ write comments about what code you changed used to do. Comments are for explaining design decisions of the existing system.
 
 # Proactive Behavior
 
@@ -33,18 +33,21 @@ Don't wait to be asked:
 # Git usage
 
 - Use conventional commits in commit messages
-- Use feature/ fix/ docs/, etc. when creating feature branches
+- Use feature/ fix/ docs/, etc. when creating feature branches, don't create a new branch unless asked.
 - Include the Jira ticket number in the branch name
 - Use conventional commits headers as PR titles, include Jira ticket number if relevant
+- Commit and push proactively as work completes, without waiting for explicit
+  confirmation each time. Still avoid force-push, amending others' commits,
+  or rewriting shared history without being asked.
 
 # Additional Programs
 
 Here are some additional programs in the environment beyond what's installed on a typical system, use them when running bash commands or writing scripts to get more focused results more easily.
 
+- `perl`: sometimes easier than `sed`
 - `ast-grep` : sophisticated grep over an abstract syntax tree
 - `shellcheck` : linter and formatter for shell scripts
 - `jq` : Query engine for JSON
-- `taplo` : utility for working with toml files, provides a linter and formatter as well as a search function similar to `jq`
 - `jaq` : Query engine for YAML, TOML, XML, and CBOR similar to `jq`
 - `sage` : SageMath symbolic math toolkit
 
@@ -81,3 +84,5 @@ For cross-project work, check and query each project's graph independently from 
 - Use `const` and `constexpr` wherever possible
 - prefer `cstdint` types
 - Annotate with `noexcept` and `[[nodiscard]]` and others where relevant
+- Prefer `.cpp` over `.cu` for translation units that call CUDA API functions but define no device code (`__global__`, `__device__`, `<<<...>>>`). Use `.cu` only when the file contains kernel definitions or device-side code.
+- Gate architecture-specific SIMD flags (`-mavx2`, `-mfma`, `-mcpu=...`) in CMake by probing the compiler with `check_cxx_compiler_flag`, NOT by branching on `CMAKE_SYSTEM_PROCESSOR`.
