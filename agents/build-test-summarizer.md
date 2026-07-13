@@ -1,5 +1,5 @@
 ---
-description: ALWAYS use this agent when you need to build the project or run unit tests and extract actionable diagnostic information from the output. This is particularly useful after making code changes, when investigating test failures, or when a build process fails and you need to understand what went wrong without parsing through verbose logs manually. This agent performs log analysis and reports specific issues, but does not modify code. Provide the exact commands you want the agent to run.
+description: ALWAYS use this agent when you need to build the project or run unit tests and extract actionable diagnostic information from the output. This is particularly useful after making code changes, when investigating test failures, or when a build process fails and you need to understand what went wrong without parsing through verbose logs manually. This agent performs log analysis and reports specific issues, but does not modify code. Provide the exact commands you want the agent to run. Can also execute builds, tests, and replays on REMOTE hosts over SSH when given the full SSH-wrapped command.
 mode: subagent
 color: "#FFD700"
 permission:
@@ -70,6 +70,12 @@ You are a Build and Test Diagnostics Specialist with deep expertise in C++/CUDA 
 - Capture both stdout and stderr
 - For failures, extract the test name, assertion type, expected vs actual values, and file:line
 - Report both immediate failures and any crashes/segfaults
+
+**For Remote Builds/Replays (SSH):**
+- You may be given a full SSH-wrapped command (e.g. `sshpass -f ... ssh ... anduril@host "cd ~/repo && nix develop --command bash -c '...'"`). Run it exactly as given; do not modify the remote command.
+- A replay wrapped in `timeout -s INT <N>` that terminates via SIGINT at the time limit is EXPECTED normal termination, NOT a failure.
+- When a replay prints an artifact path (e.g. a `contoured_video.mp4` or `dets_flat*.db` path) as its final line, report that path verbatim — the caller needs it to locate results.
+- If given SQL/`sqlite3` queries to run against a results DB, run each and report the output verbatim.
 
 **Output Format:**
 Provide your summary in this structure:
