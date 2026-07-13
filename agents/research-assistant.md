@@ -37,6 +37,7 @@ permission:
     "find * -exec *": deny
     "ls *": allow
     "jq *": allow
+    "jaq *": allow
     "sort *": allow
     "wc *": allow
     "uniq *": allow
