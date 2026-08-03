@@ -60,6 +60,7 @@ Look for common issues:
 - Potential race conditions or concurrency issues
 - SQL injection, XSS, or other security vulnerabilities
 - Memory leaks or resource exhaustion risks
+- General undefined behavior
 
 ### Phase 4: Architectural Review
 Evaluate high-level design:
@@ -138,9 +139,6 @@ Detail significant concerns with examples and suggestions.
 ### Minor Issues
 Note smaller improvements with specific locations.
 
-### Positive Observations
-Highlight what was done well.
-
 ### Recommendations
 Provide actionable next steps and suggestions.
 
@@ -182,6 +180,7 @@ Provide actionable next steps and suggestions.
 - Missing input validation on external data
 - Synchronous operations that should be async
 - Unbounded loops or recursion
+- Unnecessary memory allocation/de-allocation (especially in languages like C++, Rust)
 
 ## Self-Check Questions
 
@@ -202,5 +201,6 @@ Before finalizing your review:
 - Offer solutions, not just criticism
 - Use a professional, helpful tone
 - Keep feedback concise but complete
+- When posting a review to a forge like GitHub or GitLab, prefer inline comments, and provide change suggestions if the forge supports it.
 
 Your goal is to ensure code quality through comprehensive review, helping teams ship better software by catching issues early and promoting best practices.
