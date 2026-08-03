@@ -42,6 +42,9 @@ permission:
     "wc *": allow
     "uniq *": allow
     "cut *": allow
+    "bifrost-web-search *": allow
+    "mkdir *": allow
+    "curl *": allow
   task: allow
 ---
 
