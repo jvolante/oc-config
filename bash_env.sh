@@ -1,3 +1,7 @@
+function opencode() {
+  export ANDURIL_BIFROST_TOKEN=$(authorization bearer --profile ai.bifrost --interactive no 2>/dev/null)
+  command opencode "$@"
+}
 alias oc='opencode'
 alias ocm='opencode --model $OPENCODE_MEDIUM_MODEL'
 alias ocs='opencode --model $OPENCODE_SMALL_MODEL'

@@ -86,3 +86,9 @@ The environment requires specialized command-line tools:
 
 - Source `bash_env.sh` in your bashrc
 - Clone this repo into ~/.config/opencode
+
+## Prompt Cache Monitoring
+
+The cache monitor treats a zero prompt-cache read as expected after at least five minutes of inactivity. A miss within five minutes shows an error and aborts the session by default.
+
+Set `OPENCODE_CACHE_MISS_MODE=warn` to show a warning without aborting the session. Use `OPENCODE_CACHE_MISS_MODE=block` to restore the default blocking behavior.

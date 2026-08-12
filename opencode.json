@@ -3,172 +3,8 @@
   "autoupdate": false,
   "model": "{env:OPENCODE_LARGE_MODEL}",
   "small_model": "{env:OPENCODE_TINY_MODEL}",
-  "lsp": {
-    "pyright": {
-      "disabled": true
-    },
-    "lua-ls": {
-      "command": [
-        "lua-ls"
-      ],
-      "extensions": [
-        ".lua"
-      ]
-    },
-    "ruff": {
-      "command": [
-        "ruff",
-        "server"
-      ],
-      "extensions": [
-        ".py",
-        ".pyi"
-      ]
-    },
-    "clangd": {
-      "disabled": true,
-      "command": [
-        "clangd"
-      ],
-      "extensions": [
-        ".c",
-        ".h",
-        ".cpp",
-        ".hpp",
-        ".cc",
-        ".cxx",
-        ".hxx",
-        ".cu"
-      ]
-    },
-    "bash": {
-      "command": [
-        "bash-language-server",
-        "start"
-      ],
-      "extensions": [
-        ".sh",
-        ".bash",
-        ".zsh",
-        ".ksh"
-      ]
-    },
-    "yaml-ls": {
-      "command": [
-        "yamlls"
-      ],
-      "extensions": [
-        ".yaml",
-        ".yml"
-      ]
-    },
-    "rust": {
-      "command": [
-        "rust-analyzer"
-      ],
-      "extensions": [
-        ".rs"
-      ]
-    },
-    "marksman": {
-      "command": [
-        "marksman"
-      ],
-      "extensions": [
-        ".md"
-      ]
-    },
-    "jqls": {
-      "command": [
-        "jqls"
-      ],
-      "extensions": [
-        ".jq"
-      ]
-    },
-    "jsonls": {
-      "command": [
-        "jsonls"
-      ],
-      "extensions": [
-        ".json",
-        ".jsonc"
-      ]
-    },
-    "glsl_analyzer": {
-      "command": [
-        "glsl_analyzer"
-      ],
-      "extensions": [
-        ".glsl",
-        ".vert",
-        ".frag",
-        ".geom",
-        ".comp"
-      ]
-    },
-    "buf_ls": {
-      "command": [
-        "buf_ls"
-      ],
-      "extensions": [
-        ".proto"
-      ]
-    },
-    "nixd": {
-      "command": [
-        "nixd"
-      ],
-      "extensions": [
-        ".nix"
-      ]
-    },
-    "nil_ls": {
-      "command": [
-        "nil"
-      ],
-      "extensions": [
-        ".nix"
-      ]
-    },
-    "neocmake": {
-      "command": [
-        "neocmake"
-      ],
-      "extensions": [
-        ".cmake",
-        "CMakeLists.txt"
-      ]
-    },
-    "taplo": {
-      "command": [
-        "taplo",
-        "lsp",
-        "stdio"
-      ],
-      "extensions": [
-        ".toml"
-      ]
-    },
-    "tinymist": {
-      "command": [
-        "tinymist"
-      ],
-      "extensions": [
-        ".typ"
-      ]
-    },
-    "ty": {
-      "command": [
-        "ty",
-        "server"
-      ],
-      "extensions": [
-        ".py",
-        ".pyi"
-      ]
-    }
-  },
+  "lsp": false,
+  "subagent_depth": 6,
   "permission": {
     "skill": {
       "open-prs": "deny"
@@ -181,7 +17,17 @@
       "/dev/stderr": "allow",
       "/nix/store/**": "allow",
       "/proc/**": "allow",
-      "{env:HOME}/projects/**": "allow"
+      "{env:HOME}/projects/**": "allow",
+      "{env:HOME}/secrets/**": "allow"
+    },
+    "read": {
+      "{env:HOME}/secrets/**": "deny"
+    },
+    "bash": {
+      "*~/secrets*": "ask",
+      "*{env:HOME}/secrets*": "ask",
+      "sshpass -f ~/secrets/* *": "allow",
+      "sshpass -f {env:HOME}/secrets/* *": "allow"
     },
     "edit": {
       "/nix/store/**": "deny",
@@ -190,11 +36,12 @@
     }
   },
   "compaction": {
-    "reserved": 20000
+    "reserved": 20000,
+    "prune": false
   },
   "agent": {
     "compaction": {
-      "model": "{env:OPENCODE_MEDIUM_MODEL}"
+      "model": "{env:OPENCODE_SMALL_MODEL}"
     },
     "code-cleanup": {
       "model": "{env:OPENCODE_SMALL_MODEL}"
@@ -206,7 +53,7 @@
       "model": "{env:OPENCODE_MEDIUM_MODEL}"
     },
     "code-reviewer": {
-      "model": "{env:OPENCODE_LARGE_MODEL_ALT}"
+      "model": "{env:OPENCODE_LARGE_MODEL}"
     },
     "graph-builder": {
       "model": "{env:OPENCODE_SMALL_MODEL}",
@@ -217,7 +64,11 @@
     "explore": {
       "permission": {
         "skill": {
-          "graphify": "allow"
+          "graphify": "allow",
+          "nix-dep-investigation": "allow",
+          "confluence": "allow",
+          "jira": "allow",
+          "web-search": "allow"
         },
         "bash": {
           "graphify-smart *": "allow"
@@ -226,23 +77,58 @@
           "graph-builder *": "allow"
         }
       }
+    },
+    "plan": {
+      "permission": {
+        "skill": {
+          "web-search": "allow"
+        }
+      }
+    },
+    "research-assistant": {
+      "permission": {
+        "skill": {
+          "web-search": "allow"
+        }
+      }
     }
   },
   "mcp": {
     "lib-info": {
       "type": "local",
       "command": [
-        "uv",
+        "nix",
         "run",
-        "--project",
         "/home/jvolante/projects/lib-info-mcp",
-        "python3",
-        "-m",
-        "lib_info_mcp",
+        "--",
         "--config",
         "/home/jvolante/.config/lib-info-mcp/config.toml"
       ],
       "timeout": 600000
+    },
+    "zotero": {
+      "type": "local",
+      "enabled": false,
+      "command": [
+        "nix",
+        "run",
+        "/home/jvolante/nix-config#zotero-mcp",
+        "--",
+        "serve"
+      ],
+      "env": {
+        "ZOTERO_LOCAL": "true"
+      }
+    },
+    "markitdown": {
+      "type": "local",
+      "command": [
+        "nix",
+        "run",
+        "--impure",
+        "--expr",
+        "let pkgs = import (builtins.getFlake \"nixpkgs\").outPath { config.packageOverrides = pkgs: { python314 = pkgs.python314.override { packageOverrides = pyfinal: pyprev: { pandas-stubs = pyprev.pandas-stubs.overrideAttrs (o: { doInstallCheck = false; pythonImportsCheck = []; }); }; }; }; }; in pkgs.markitdown-mcp"
+      ]
     }
   }
 }
