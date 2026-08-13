@@ -17,7 +17,7 @@ const REPLACEMENT = `# Git and GitHub
 export const AllowProactiveGit = async () => {
   return {
     "tool.definition": async (input, output) => {
-      if (input.toolID !== "bash") return
+      if (input.tool !== "bash") return
       output.description = output.description.replace(GIT_SECTION, REPLACEMENT)
     },
   }
