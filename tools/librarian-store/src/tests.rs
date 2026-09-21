@@ -1046,6 +1046,13 @@ fn inbox_add_is_copy_only_and_status_ignores_hidden_files() {
     .unwrap();
     assert_eq!(fs::read(&source).unwrap(), original);
     let published = dir.path().join(result["jobs"][0]["path"].as_str().unwrap());
+    assert_eq!(
+        result["jobs"][0]["published_path"],
+        result["jobs"][0]["path"]
+    );
+    assert!(!result
+        .to_string()
+        .contains(&source.to_string_lossy().to_string()));
     assert_eq!(fs::read(published).unwrap(), original);
     fs::write(dir.path().join("inbox/.orphan.tmp"), b"ignored").unwrap();
     let status = inbox_status(&c).unwrap();
@@ -1069,6 +1076,10 @@ fn inbox_duplicate_reuses_job_and_published_file() {
     let two = inbox_add(&mut c, args(second), &dir.path().join("inbox")).unwrap();
     assert_eq!(one["jobs"][0]["id"], two["jobs"][0]["id"]);
     assert_eq!(two["jobs"][0]["status"], "duplicate");
+    assert_eq!(
+        two["jobs"][0]["published_path"],
+        one["jobs"][0]["published_path"]
+    );
     assert_eq!(fs::read_dir(dir.path().join("inbox")).unwrap().count(), 1);
     assert_eq!(
         c.query_row(
@@ -1561,6 +1572,7 @@ fn filed_duplicate_does_not_create_new_job() {
     .unwrap();
     assert_eq!(two["jobs"][0]["status"], "duplicate");
     assert_eq!(two["jobs"][0]["document_id"], document_id);
+    assert!(two["jobs"][0]["published_path"].is_null());
     assert_eq!(
         c.query_row("SELECT count(*) FROM inbox_jobs", [], |r| r
             .get::<_, i64>(0))

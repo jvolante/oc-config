@@ -553,12 +553,11 @@ fn existing_published_file(
     root: &Path,
     published_path: &str,
     expected_sha256: &str,
-) -> Result<bool> {
+) -> Result<String> {
     let relative = Path::new(published_path)
         .strip_prefix("inbox")
         .ok()
         .filter(|path| path.components().count() == 1)
-        .and_then(|path| path.file_name())
         .context("published path is outside the inbox")?;
     let path = root.join(relative);
     let metadata = fs::symlink_metadata(&path)?;
@@ -579,7 +578,16 @@ fn existing_published_file(
         }
         hasher.update(&buffer[..read]);
     }
-    Ok(format!("{:x}", hasher.finalize()) == expected_sha256)
+    if format!("{:x}", hasher.finalize()) != expected_sha256 {
+        bail!("published path has unexpected content")
+    }
+    Ok(format!(
+        "inbox/{}",
+        relative
+            .file_name()
+            .context("published path has no filename")?
+            .to_string_lossy()
+    ))
 }
 fn inbox_add(c: &mut Connection, a: InboxAdd, root: &Path) -> Result<serde_json::Value> {
     inbox_add_internal(c, a, root, false)
@@ -610,30 +618,38 @@ fn inbox_add_internal(
                 .optional()?;
             if let Some(document_id) = filed {
                 fs::remove_file(&published)?;
-                return Ok(
-                    serde_json::json!({"status":"duplicate","document_id":document_id,"sha256":sha256}),
-                );
+                return Ok(serde_json::json!({
+                    "status":"duplicate",
+                    "document_id":document_id,
+                    "sha256":sha256,
+                    "published_path":null
+                }));
             }
             let existing: Option<(String, Option<String>)> = tx.query_row(
                 "SELECT id,published_path FROM inbox_jobs WHERE sha256=? AND status <> 'failed' ORDER BY created_at LIMIT 1",
                 params![sha256], |row| Ok((row.get(0)?, row.get(1)?)),
             ).optional()?;
             if let Some((existing_id, existing_path)) = existing {
-                if existing_path.as_deref().is_some_and(|path| {
-                    existing_published_file(root, path, &sha256).unwrap_or(false)
-                }) {
-                    fs::remove_file(&published)?;
-                    event(
-                        &tx,
-                        "inbox_job",
-                        &existing_id,
-                        "inbox_add",
-                        serde_json::json!({"status":"duplicate","sha256":sha256,"original_basename":basename}),
-                    )?;
-                    tx.commit()?;
-                    return Ok(
-                        serde_json::json!({"id":existing_id,"status":"duplicate","sha256":sha256}),
-                    );
+                if let Some(existing_path) = existing_path.as_deref() {
+                    if let Ok(canonical_path) =
+                        existing_published_file(root, existing_path, &sha256)
+                    {
+                        fs::remove_file(&published)?;
+                        event(
+                            &tx,
+                            "inbox_job",
+                            &existing_id,
+                            "inbox_add",
+                            serde_json::json!({"status":"duplicate","sha256":sha256,"original_basename":basename}),
+                        )?;
+                        tx.commit()?;
+                        return Ok(serde_json::json!({
+                            "id":existing_id,
+                            "status":"duplicate",
+                            "sha256":sha256,
+                            "published_path":canonical_path
+                        }));
+                    }
                 }
                 let detail = "existing published file failed validation";
                 tx.execute(
@@ -669,7 +685,7 @@ fn inbox_add_internal(
             )?;
             tx.commit()?;
             Ok(
-                serde_json::json!({"id":job_id,"status":"pending","sha256":sha256,"path":published_path}),
+                serde_json::json!({"id":job_id,"status":"pending","sha256":sha256,"path":published_path,"published_path":published_path}),
             )
         })();
         if result.is_err() {

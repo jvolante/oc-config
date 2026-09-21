@@ -46,6 +46,22 @@ Claim results evaluate expiration and approved review scripts before being
 returned. Inline scripts are sandboxed, hash-approved, and limited to explicit
 capabilities. Generated Markdown and JSONL are exports, not sources of truth.
 
+### Primary Sources
+
+Add a local primary source through the XDG inbox instead of copying directly
+into the database or archive:
+
+```bash
+nix run ~/.config/opencode/tools/librarian-store -- inbox add /path/to/source.pdf
+nix run ~/.config/opencode/tools/librarian-store -- inbox status
+```
+
+The librarian dispatches its hidden `source-filer` before research when pending
+items exist. Originals are archived by SHA-256; extracted PDF/text chunks keep
+page and line locators for later citation. Only public documents confidently
+classified as scholarly PDFs are eligible for the `Librarian Inbox` Zotero
+collection. All other sources remain local.
+
 ### `AGENTS.md`
 
 Development guidelines and best practices including:
