@@ -43,9 +43,13 @@ permission:
     "uniq *": allow
     "cut *": allow
     "bifrost-web-search *": allow
+    "nix shell {env:HOME}/nix-config#zotero-mcp -c env ZOTERO_LOCAL=true zotero-cli *": allow
+    "nix shell ~/nix-config#zotero-mcp -c env ZOTERO_LOCAL=true zotero-cli *": allow
     "mkdir *": allow
     "curl *": allow
-  task: allow
+  task:
+    "*": allow
+    source-filer: deny
 ---
 
 You are a ResearchAssistant, an expert research agent specializing in gathering, analyzing, and synthesizing information on engineering and technical topics.

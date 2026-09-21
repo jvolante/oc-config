@@ -7,7 +7,9 @@
   "subagent_depth": 6,
   "permission": {
     "skill": {
-      "open-prs": "deny"
+      "open-prs": "deny",
+      "librarian-store": "deny",
+      "zotero": "deny"
     },
     "external_directory": {
       "/tmp/**": "allow",
@@ -33,6 +35,9 @@
       "/nix/store/**": "deny",
       "/proc/**": "deny",
       "{env:HOME}/projects/**": "ask"
+    },
+    "task": {
+      "source-filer": "deny"
     }
   },
   "compaction": {
@@ -88,9 +93,24 @@
     "research-assistant": {
       "permission": {
         "skill": {
-          "web-search": "allow"
+          "web-search": "allow",
+          "zotero": "allow"
         }
       }
+    },
+    "librarian": {
+      "model": "{env:OPENCODE_MEDIUM_MODEL}",
+      "permission": {
+        "skill": {
+          "confluence": "allow",
+          "librarian-store": "allow",
+          "web-search": "allow",
+          "zotero": "allow"
+        }
+      }
+    },
+    "source-filer": {
+      "model": "{env:OPENCODE_SMALL_MODEL}"
     }
   },
   "mcp": {
@@ -105,20 +125,6 @@
         "/home/jvolante/.config/lib-info-mcp/config.toml"
       ],
       "timeout": 600000
-    },
-    "zotero": {
-      "type": "local",
-      "enabled": false,
-      "command": [
-        "nix",
-        "run",
-        "/home/jvolante/nix-config#zotero-mcp",
-        "--",
-        "serve"
-      ],
-      "env": {
-        "ZOTERO_LOCAL": "true"
-      }
     },
     "markitdown": {
       "type": "local",

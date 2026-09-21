@@ -11,6 +11,7 @@ This repository contains the custom configuration, commands, and skills for Open
 ├── commands/             # Custom slash commands available in OpenCode
 ├── skills/               # Specialized skill packs for domain-specific tasks
 ├── agents/               # Custom agent definitions
+├── tools/                # Self-contained tools used by agents
 ├── package.json          # Node.js dependencies
 └── bash_env.sh          # Bash environment setup
 ```
@@ -25,6 +26,25 @@ The main configuration file that controls:
 - **Permissions**: External directory access and file edit permissions
 - **MCP Servers**: Model Context Protocol integrations (lib-info for library analysis)
 - **Agent Model Assignments**: Specialized models for different agent types
+
+## Librarian
+
+The `librarian` subagent handles research across local files, prior findings,
+Zotero, read-only Confluence, and the web. It keeps source traversal and search
+debris in its own context and returns compact, cited conclusions to its caller.
+
+Durable knowledge is stored as structured sources, revisions, evidence, claims,
+and relationships in `~/.local/share/opencode/librarian/knowledge.db`. The Rust
+CLI under `tools/librarian-store/` is the only supported database interface:
+
+```bash
+nix run ~/.config/opencode/tools/librarian-store -- init
+nix run ~/.config/opencode/tools/librarian-store -- search "query"
+```
+
+Claim results evaluate expiration and approved review scripts before being
+returned. Inline scripts are sandboxed, hash-approved, and limited to explicit
+capabilities. Generated Markdown and JSONL are exports, not sources of truth.
 
 ### `AGENTS.md`
 
@@ -67,6 +87,8 @@ Skills are specialized workflow packs that provide domain-specific tools and ins
 | **CircleCI** (`circleci`) | Query, trigger, and rerun CircleCI pipelines and workflows via REST API |
 | **Confluence** (`confluence`) | Search, read, and create Confluence pages and comments |
 | **Jira** (`jira`) | Query, update, and create Jira tickets with JQL support |
+| **Librarian Store** (`librarian-store`) | Manage structured claims, evidence, citations, freshness checks, and exports |
+| **Zotero** (`zotero`) | Search, read, and manage Zotero through the packaged CLI |
 | **CUDA Texture Reference** (`cuda_texture_reference`) | Empirically verified CUDA texture object constraints and best practices |
 | **Graphify** (`graphify`) | Transform code/docs into navigable knowledge graphs with visualization |
 | **Open PRs** (`open-prs`) | Query and filter open pull requests with CI correlation |
