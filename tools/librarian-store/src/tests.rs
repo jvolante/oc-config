@@ -1,9 +1,9 @@
 use super::*;
-use std::path::PathBuf;
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Mutex,
 };
+use std::{fs, path::PathBuf};
 use tempfile::TempDir;
 
 struct FakeRunner {
@@ -37,6 +37,87 @@ fn db() -> (TempDir, Connection) {
     let dir = tempfile::tempdir().unwrap();
     let c = open(&dir.path().join("knowledge.db")).unwrap();
     (dir, c)
+}
+
+#[test]
+fn text_inbox_job_is_filed_and_searchable() {
+    let (dir, mut c) = db();
+    let input = dir.path().join("notes.md");
+    fs::write(&input, "Alpha\r\nBeta\r\n").unwrap();
+    let root = dir.path().to_path_buf();
+    let added = inbox_add(
+        &mut c,
+        InboxAdd {
+            sensitivity: "internal".into(),
+            files: vec![input],
+        },
+        &root.join("inbox"),
+    )
+    .unwrap();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let result = runtime
+        .block_on(filing::process_with_extractor(
+            &mut c,
+            InboxProcess {
+                limit: None,
+                job_ids: vec![added["jobs"][0]["id"].as_str().unwrap().into()],
+            },
+            &root,
+            &filing::SystemdPdfExtractor,
+        ))
+        .unwrap();
+    assert_eq!(result["jobs"][0]["status"], "filed", "{result}");
+    let document_id = result["jobs"][0]["document_id"].as_str().unwrap();
+    assert_eq!(
+        filing::document_show(&c, document_id).unwrap()["chunks"][0]["locator"],
+        "L001-L002"
+    );
+    assert_eq!(
+        filing::document_search(&c, "Alpha", 10).unwrap()["documents"][0]["locator"],
+        "L001-L002"
+    );
+    assert_eq!(
+        c.query_row("SELECT count(*) FROM documents", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+}
+
+#[test]
+fn unsupported_inbox_bytes_are_quarantined() {
+    let (dir, mut c) = db();
+    let input = dir.path().join("binary");
+    fs::write(&input, [0_u8, 159, 146, 150]).unwrap();
+    let root = dir.path().to_path_buf();
+    let added = inbox_add(
+        &mut c,
+        InboxAdd {
+            sensitivity: "public".into(),
+            files: vec![input],
+        },
+        &root.join("inbox"),
+    )
+    .unwrap();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let result = runtime
+        .block_on(filing::process_with_extractor(
+            &mut c,
+            InboxProcess {
+                limit: None,
+                job_ids: vec![added["jobs"][0]["id"].as_str().unwrap().into()],
+            },
+            &root,
+            &filing::SystemdPdfExtractor,
+        ))
+        .unwrap();
+    assert_eq!(result["jobs"][0]["status"], "quarantined");
+    assert_eq!(
+        c.query_row("SELECT status FROM inbox_jobs", [], |r| r
+            .get::<_, String>(0))
+            .unwrap(),
+        "quarantined"
+    );
+    assert_eq!(fs::read_dir(root.join("quarantine")).unwrap().count(), 1);
 }
 
 fn source(c: &mut Connection, version: Option<&str>, hash_value: Option<&str>) -> String {
@@ -1046,6 +1127,324 @@ fn invalid_duplicate_targets_are_failed_and_new_job_is_retained() {
 fn inbox_size_limit_includes_exact_boundary_only() {
     assert!(validate_inbox_size(MAX_INBOX_INPUT_BYTES).is_ok());
     assert!(validate_inbox_size(MAX_INBOX_INPUT_BYTES + 1).is_err());
+}
+
+struct FakePdfExtractor {
+    text: String,
+}
+
+struct BatchLeaseExtractor {
+    db_path: PathBuf,
+    later_job: String,
+    checked: AtomicBool,
+}
+
+#[async_trait]
+impl filing::PdfExtractor for BatchLeaseExtractor {
+    async fn extract(&self, _archive: &Path) -> Result<filing::Extracted> {
+        if !self.checked.swap(true, Ordering::SeqCst) {
+            let c = Connection::open(&self.db_path)?;
+            let state: (String, Option<String>, Option<String>) = c.query_row(
+                "SELECT status,lease_owner,lease_until FROM inbox_jobs WHERE id=?",
+                params![self.later_job],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )?;
+            anyhow::ensure!(
+                state == ("pending".into(), None, None),
+                "later job was preclaimed: {state:?}"
+            );
+        }
+        Ok(filing::Extracted {
+            text: "processed".into(),
+            pages: None,
+        })
+    }
+}
+
+#[async_trait]
+impl filing::PdfExtractor for FakePdfExtractor {
+    async fn extract(&self, _archive: &Path) -> Result<filing::Extracted> {
+        Ok(filing::Extracted {
+            text: self.text.clone(),
+            pages: Some(1),
+        })
+    }
+}
+
+#[tokio::test]
+async fn whitespace_pdf_is_quarantined_for_ocr_and_preserved() {
+    let (dir, mut c) = db();
+    let input = dir.path().join("scan.pdf");
+    fs::write(&input, b"%PDF-1.7 fake").unwrap();
+    let added = inbox_add(
+        &mut c,
+        InboxAdd {
+            sensitivity: "internal".into(),
+            files: vec![input],
+        },
+        &dir.path().join("inbox"),
+    )
+    .unwrap();
+    let result = filing::process_with_extractor(
+        &mut c,
+        InboxProcess {
+            limit: None,
+            job_ids: vec![added["jobs"][0]["id"].as_str().unwrap().into()],
+        },
+        dir.path(),
+        &FakePdfExtractor {
+            text: "\u{c}\n\t".into(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(result["jobs"][0]["status"], "quarantined");
+    assert!(result["jobs"][0]["detail"]
+        .as_str()
+        .unwrap()
+        .contains("needs OCR"));
+    assert_eq!(
+        fs::read_dir(dir.path().join("quarantine")).unwrap().count(),
+        1
+    );
+}
+
+#[test]
+fn stale_worker_cannot_complete_reclaimed_job() {
+    let (dir, mut c) = db();
+    let input = dir.path().join("lease.txt");
+    fs::write(&input, b"lease").unwrap();
+    let added = inbox_add(
+        &mut c,
+        InboxAdd {
+            sensitivity: "internal".into(),
+            files: vec![input],
+        },
+        &dir.path().join("inbox"),
+    )
+    .unwrap();
+    let job_id = added["jobs"][0]["id"].as_str().unwrap().to_owned();
+    let first = filing::claim_jobs(&mut c, std::slice::from_ref(&job_id), None)
+        .unwrap()
+        .pop()
+        .unwrap();
+    c.execute(
+        "UPDATE inbox_jobs SET lease_until='2000-01-01T00:00:00Z' WHERE id=?",
+        params![job_id],
+    )
+    .unwrap();
+    let second = filing::claim_jobs(&mut c, std::slice::from_ref(&job_id), None)
+        .unwrap()
+        .pop()
+        .unwrap();
+    assert_ne!(first.6, second.6);
+    assert_eq!(c.execute("UPDATE inbox_jobs SET status='failed' WHERE id=? AND status='processing' AND lease_owner=?", params![job_id, first.6]).unwrap(), 0);
+    assert_eq!(
+        c.query_row(
+            "SELECT lease_owner FROM inbox_jobs WHERE id=?",
+            params![job_id],
+            |r| r.get::<_, String>(0)
+        )
+        .unwrap(),
+        second.6
+    );
+    let _ = dir;
+}
+
+#[test]
+fn pdf_policy_uses_wrapper_path_and_sandbox_only() {
+    let args = filing::pdf_command_args(
+        Path::new("/input"),
+        "/wrapped/pdftotext",
+        "/wrapped/bin:/usr/bin",
+    );
+    assert!(args
+        .windows(2)
+        .any(|pair| pair == ["PATH=/wrapped/bin:/usr/bin", "pdftotext"]));
+    assert!(!args
+        .iter()
+        .any(|arg| arg.contains("/run/current-system/sw/bin/pdftotext")));
+    assert!(args.iter().any(|arg| arg == "PrivateNetwork=yes"));
+}
+
+#[test]
+fn filed_duplicate_does_not_create_new_job() {
+    let (dir, mut c) = db();
+    let first = dir.path().join("first.txt");
+    let second = dir.path().join("second.txt");
+    fs::write(&first, b"filed once").unwrap();
+    fs::write(&second, b"filed once").unwrap();
+    let one = inbox_add(
+        &mut c,
+        InboxAdd {
+            sensitivity: "internal".into(),
+            files: vec![first],
+        },
+        &dir.path().join("inbox"),
+    )
+    .unwrap();
+    let document = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(filing::process_with_extractor(
+            &mut c,
+            InboxProcess {
+                limit: None,
+                job_ids: vec![one["jobs"][0]["id"].as_str().unwrap().into()],
+            },
+            dir.path(),
+            &filing::SystemdPdfExtractor,
+        ))
+        .unwrap();
+    let document_id = document["jobs"][0]["document_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let two = inbox_add(
+        &mut c,
+        InboxAdd {
+            sensitivity: "internal".into(),
+            files: vec![second],
+        },
+        &dir.path().join("inbox"),
+    )
+    .unwrap();
+    assert_eq!(two["jobs"][0]["status"], "duplicate");
+    assert_eq!(two["jobs"][0]["document_id"], document_id);
+    assert_eq!(
+        c.query_row("SELECT count(*) FROM inbox_jobs", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn batch_processing_does_not_preclaim_later_jobs() {
+    let (dir, mut c) = db();
+    let first = dir.path().join("first.txt");
+    let second = dir.path().join("second.txt");
+    fs::write(&first, "first").unwrap();
+    fs::write(&second, "second").unwrap();
+    let added = inbox_add(
+        &mut c,
+        InboxAdd {
+            sensitivity: "internal".into(),
+            files: vec![first, second],
+        },
+        &dir.path().join("inbox"),
+    )
+    .unwrap();
+    let ids = added["jobs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|job| job["id"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    let result = filing::process_with_extractor(
+        &mut c,
+        InboxProcess {
+            limit: Some(2),
+            job_ids: ids,
+        },
+        dir.path(),
+        &BatchLeaseExtractor {
+            db_path: dir.path().join("knowledge.db"),
+            later_job: added["jobs"][1]["id"].as_str().unwrap().into(),
+            checked: AtomicBool::new(false),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(result["summary"]["processed"], 2);
+}
+
+#[tokio::test]
+async fn public_document_show_caps_chunks_and_preview() {
+    let (dir, mut c) = db();
+    let input = dir.path().join("many-lines.txt");
+    fs::write(&input, (0..30).map(|_| "line\n").collect::<String>()).unwrap();
+    let added = inbox_add(
+        &mut c,
+        InboxAdd {
+            sensitivity: "internal".into(),
+            files: vec![input],
+        },
+        &dir.path().join("inbox"),
+    )
+    .unwrap();
+    let processed = filing::process_with_extractor(
+        &mut c,
+        InboxProcess {
+            limit: None,
+            job_ids: vec![added["jobs"][0]["id"].as_str().unwrap().into()],
+        },
+        dir.path(),
+        &filing::SystemdPdfExtractor,
+    )
+    .await
+    .unwrap();
+    let document_id = processed["jobs"][0]["document_id"].as_str().unwrap();
+    c.execute(
+        "UPDATE document_chunks SET text=? WHERE document_id=?",
+        params!["x".repeat(MAX_CHUNK_BYTES * 2), document_id],
+    )
+    .unwrap();
+    let command = Cli::try_parse_from([
+        "librarian-store",
+        "document",
+        "show",
+        document_id,
+        "--limit",
+        "1",
+    ])
+    .unwrap();
+    let shown = execute_at(command, dir.path().join("knowledge.db"))
+        .await
+        .unwrap();
+    assert_eq!(shown["chunks"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        shown["chunks"][0]["text"].as_str().unwrap().len(),
+        MAX_CHUNK_BYTES
+    );
+}
+
+#[tokio::test]
+async fn public_inbox_process_quarantines_long_line_without_filing() {
+    let (dir, mut c) = db();
+    let input = dir.path().join("long-line.txt");
+    let bytes = format!("{}\n", "x".repeat(MAX_CHUNK_BYTES + 1));
+    fs::write(&input, &bytes).unwrap();
+    let added = inbox_add(
+        &mut c,
+        InboxAdd {
+            sensitivity: "public".into(),
+            files: vec![input],
+        },
+        &dir.path().join("inbox"),
+    )
+    .unwrap();
+    let job_id = added["jobs"][0]["id"].as_str().unwrap();
+    let command = Cli::try_parse_from(["librarian-store", "inbox", "process", job_id]).unwrap();
+    let result = execute_at(command, dir.path().join("knowledge.db"))
+        .await
+        .unwrap();
+    assert_eq!(result["jobs"][0]["status"], "quarantined");
+    assert!(result["jobs"][0]["detail"]
+        .as_str()
+        .unwrap()
+        .contains("line exceeds"));
+    let quarantined = fs::read_dir(dir.path().join("quarantine"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    assert_eq!(fs::read(quarantined).unwrap(), bytes.as_bytes());
+    assert_eq!(
+        c.query_row("SELECT count(*) FROM documents", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
 }
 
 #[tokio::test]

@@ -9,6 +9,10 @@ nix run . -- context API
 nix run . -- inbox add ./incoming/report.pdf
 nix run . -- inbox add --sensitivity restricted ./incoming/private.dat
 nix run . -- inbox status
+nix run . -- inbox process [--limit N] [JOB_ID ...]
+nix run . -- document list [--status filed|quarantined] [--limit N]
+nix run . -- document show DOCUMENT_ID [--limit N]
+nix run . -- document search QUERY [--limit N]
 ```
 
 The database is selected by `LIBRARIAN_DB`, then `$XDG_DATA_HOME/opencode/librarian/knowledge.db`, or `~/.local/share/opencode/librarian/knowledge.db`.
@@ -50,9 +54,13 @@ This MVP does not evaluate condition expressions and requires a systemd user man
 ## Raw-source inbox
 
 `init` creates a private store layout adjacent to the database:
-`inbox/`, `archive/objects/`, `archive/text/`, and `quarantine/`. Raw-source
-filing currently consists only of `inbox add` and `inbox status`; extraction,
-archive processing, and `inbox process` are not implemented yet.
+`inbox/`, `archive/objects/`, `archive/text/`, and `quarantine/`.
+`inbox process` claims jobs with expiring ownership leases, extracts text in a
+systemd sandbox, and files successful jobs in the content-addressed archive.
+Failed extraction, OCR-only PDFs, and oversized lines are retained in
+`quarantine/`; OCR is reported in the quarantined job detail because this MVP
+has no OCR engine. `document show` is bounded by its validated limit and caps
+each chunk.
 
 `inbox add` accepts regular, non-symlink, non-empty files and copies them into
 the inbox without changing the originals. It hashes each file during the copy,
@@ -61,6 +69,7 @@ only after the copy is synced. Input names are sanitized and never become
 paths outside the inbox. Sensitivity defaults to `internal` and may be
 `public`, `internal`, or `restricted`.
 
-Content already represented by a non-failed inbox job is reported as
-`duplicate`; its existing job ID is returned and no second published file is
-created. Hidden temporary files are not jobs and are ignored by `inbox status`.
+Content already represented by a filed document or a non-failed inbox job is
+reported as `duplicate`; filed duplicates return the existing document ID and
+do not create a job. Hidden temporary files are not jobs and are ignored by
+`inbox status`. Schema mismatches fail closed without migration or reset.

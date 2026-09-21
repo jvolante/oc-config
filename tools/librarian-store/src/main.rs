@@ -28,7 +28,7 @@ const MAX_REVIEW_SCRIPT: usize = 512;
 const DEFAULT_LIMIT: u32 = 20;
 const CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_OUTPUT: usize = 4096;
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 const MAX_INBOX_INPUT_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_INBOX_BASENAME_BYTES: usize = 128;
 const INBOX_STATUSES: &[&str] = &[
@@ -43,6 +43,13 @@ const MAX_CONCURRENT_CHECKS: usize = 4;
 const MAX_SEARCH_LIMIT: u32 = 1_000;
 const REVIEW_RUNTIME_LIMIT: &str = "RuntimeMaxSec=10s";
 const ABANDONED_CHECK_SECONDS: i64 = 30;
+const PROCESS_LEASE_SECONDS: i64 = 30;
+const MAX_PROCESS_LIMIT: u32 = 1_000;
+const MAX_CHUNK_LINES: usize = 25;
+const MAX_CHUNK_BYTES: usize = 8 * 1024;
+const MAX_PDF_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
+const PDF_TIMEOUT: Duration = Duration::from_secs(20);
+const SYSTEMD_RUN: &str = "/run/current-system/sw/bin/systemd-run";
 const SOURCE_KINDS: &[&str] = &[
     "zotero",
     "confluence",
@@ -66,8 +73,11 @@ CREATE TABLE IF NOT EXISTS claim_evidence(claim_id TEXT NOT NULL REFERENCES clai
 CREATE TABLE IF NOT EXISTS claim_relations(from_claim TEXT NOT NULL REFERENCES claims(id) ON DELETE CASCADE, relation TEXT NOT NULL CHECK(relation IN ('supersedes','contradicts','refines','depends_on')), to_claim TEXT NOT NULL REFERENCES claims(id) ON DELETE CASCADE, PRIMARY KEY(from_claim,relation,to_claim));
 CREATE TABLE IF NOT EXISTS review_reasons(claim_id TEXT NOT NULL REFERENCES claims(id) ON DELETE CASCADE, kind TEXT NOT NULL, reason_key TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(claim_id,kind,reason_key));
 CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT, occurred_at TEXT NOT NULL, object_type TEXT NOT NULL, object_id TEXT NOT NULL, operation TEXT NOT NULL, details_json TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS inbox_jobs(id TEXT PRIMARY KEY, status TEXT NOT NULL CHECK(status IN ('pending','processing','filed','duplicate','quarantined','failed')), sensitivity TEXT NOT NULL CHECK(sensitivity IN ('public','internal','restricted')), sha256 TEXT NOT NULL, original_basename TEXT NOT NULL, published_path TEXT, byte_count INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, error_detail TEXT);
+CREATE TABLE IF NOT EXISTS inbox_jobs(id TEXT PRIMARY KEY, status TEXT NOT NULL CHECK(status IN ('pending','processing','filed','duplicate','quarantined','failed')), sensitivity TEXT NOT NULL CHECK(sensitivity IN ('public','internal','restricted')), sha256 TEXT NOT NULL, original_basename TEXT NOT NULL, published_path TEXT, byte_count INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, error_detail TEXT, lease_owner TEXT, lease_until TEXT);
 CREATE INDEX IF NOT EXISTS inbox_jobs_sha256_idx ON inbox_jobs(sha256);
+CREATE TABLE IF NOT EXISTS documents(id TEXT PRIMARY KEY, byte_hash TEXT NOT NULL UNIQUE, media_type TEXT NOT NULL CHECK(media_type IN ('application/pdf','text/plain')), safe_extension TEXT NOT NULL, title TEXT NOT NULL, original_basename TEXT NOT NULL, byte_count INTEGER NOT NULL, sensitivity TEXT NOT NULL CHECK(sensitivity IN ('public','internal','restricted')), archive_path TEXT NOT NULL, derived_text_path TEXT NOT NULL, extraction_status TEXT NOT NULL CHECK(extraction_status IN ('filed','quarantined','needs_ocr')), page_count INTEGER, source_id TEXT NOT NULL REFERENCES sources(id), source_revision_id TEXT NOT NULL REFERENCES source_revisions(id), created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS document_chunks(id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE, ordinal INTEGER NOT NULL, page_number INTEGER, start_line INTEGER NOT NULL, end_line INTEGER NOT NULL, locator TEXT NOT NULL, text TEXT NOT NULL, text_hash TEXT NOT NULL, UNIQUE(document_id,ordinal), UNIQUE(document_id,locator));
+CREATE VIRTUAL TABLE IF NOT EXISTS document_fts USING fts5(chunk_id UNINDEXED, document_id UNINDEXED, content);
 CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(claim_id UNINDEXED, content);
 "#;
 
@@ -98,11 +108,48 @@ enum CommandLine {
         #[command(subcommand)]
         command: InboxCommand,
     },
+    Document {
+        #[command(subcommand)]
+        command: DocumentCommand,
+    },
 }
 #[derive(Subcommand)]
 enum InboxCommand {
     Add(InboxAdd),
     Status,
+    Process(InboxProcess),
+}
+#[derive(Args)]
+struct InboxProcess {
+    #[arg(long)]
+    limit: Option<u32>,
+    #[arg()]
+    job_ids: Vec<String>,
+}
+#[derive(Subcommand)]
+enum DocumentCommand {
+    List(DocumentList),
+    Show(DocumentShow),
+    Search(DocumentSearch),
+}
+#[derive(Args)]
+struct DocumentShow {
+    id: String,
+    #[arg(long, default_value_t=DEFAULT_LIMIT)]
+    limit: u32,
+}
+#[derive(Args)]
+struct DocumentList {
+    #[arg(long)]
+    status: Option<String>,
+    #[arg(long, default_value_t=DEFAULT_LIMIT)]
+    limit: u32,
+}
+#[derive(Args)]
+struct DocumentSearch {
+    query: String,
+    #[arg(long, default_value_t=DEFAULT_LIMIT)]
+    limit: u32,
 }
 #[derive(Args)]
 struct InboxAdd {
@@ -514,6 +561,19 @@ fn inbox_add_internal(
         let (job_id, sha256, byte_count, published) = copy_to_inbox(root, &source)?;
         let result = (|| -> Result<serde_json::Value> {
             let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let filed: Option<String> = tx
+                .query_row(
+                    "SELECT id FROM documents WHERE byte_hash=?",
+                    params![sha256],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(document_id) = filed {
+                fs::remove_file(&published)?;
+                return Ok(
+                    serde_json::json!({"status":"duplicate","document_id":document_id,"sha256":sha256}),
+                );
+            }
             let existing: Option<(String, Option<String>)> = tx.query_row(
                 "SELECT id,published_path FROM inbox_jobs WHERE sha256=? AND status <> 'failed' ORDER BY created_at LIMIT 1",
                 params![sha256], |row| Ok((row.get(0)?, row.get(1)?)),
@@ -834,6 +894,17 @@ async fn execute_at(cli: Cli, path: PathBuf) -> Result<serde_json::Value> {
         CommandLine::Inbox {
             command: InboxCommand::Status,
         } => inbox_status(&c),
+        CommandLine::Inbox {
+            command: InboxCommand::Process(a),
+        } => {
+            let root = store_root(&c)?.to_path_buf();
+            filing::process(&mut c, a, &root).await
+        }
+        CommandLine::Document { command } => match command {
+            DocumentCommand::List(a) => filing::document_list(&c, a.status, a.limit),
+            DocumentCommand::Show(a) => filing::document_show_with_limit(&c, &a.id, a.limit),
+            DocumentCommand::Search(a) => filing::document_search(&c, &a.query, a.limit),
+        },
     }
 }
 
@@ -1681,5 +1752,6 @@ fn output_envelope(result: Result<serde_json::Value>) -> serde_json::Value {
     }
 }
 
+mod filing;
 #[cfg(test)]
 mod tests;
