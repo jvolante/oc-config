@@ -44,7 +44,14 @@ nix shell ~/nix-config#zotero-mcp -c env ZOTERO_LOCAL=true zotero-cli collection
 ```
 
 `add file` imports a local PDF or EPUB and attempts to extract identifiers and
-metadata. `add doi` can retrieve an open-access PDF through Zotero CLI's provider
-cascade. Use idempotent add behavior and existing collections where possible.
-If a write fails because credentials are absent, report that limitation rather
-than requesting secrets in chat.
+metadata. For librarian inbox filing, use it only when the source document is
+public and confidently identified as a scholarly PDF or paper. Point it only at
+the document's content-addressed archive object, use idempotent behavior, and
+target `Librarian Inbox`; create that collection if it is missing. Record both
+the resulting item key and attachment key with the store's `document
+zotero-link`; both keys are required before linking. Internal, restricted,
+non-PDF, non-paper, or uncertain documents must never be sent to
+Zotero; record `document zotero-skip` instead. If import fails, record
+`document zotero-failed` and do not retry in a tight loop. If a write fails
+because credentials are absent, report that limitation rather than requesting
+secrets in chat.

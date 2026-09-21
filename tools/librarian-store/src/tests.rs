@@ -84,6 +84,230 @@ fn text_inbox_job_is_filed_and_searchable() {
 }
 
 #[test]
+fn filed_document_classification_replaces_topics_and_updates_search() {
+    let (dir, mut c) = db();
+    let input = dir.path().join("paper.txt");
+    fs::write(&input, "body text").unwrap();
+    let added = inbox_add(
+        &mut c,
+        InboxAdd {
+            sensitivity: "public".into(),
+            files: vec![input],
+        },
+        &dir.path().join("inbox"),
+    )
+    .unwrap();
+    let job_id = added["jobs"][0]["id"].as_str().unwrap().to_owned();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let filed = runtime
+        .block_on(filing::process_with_extractor(
+            &mut c,
+            InboxProcess {
+                limit: None,
+                job_ids: vec![job_id],
+            },
+            dir.path(),
+            &filing::SystemdPdfExtractor,
+        ))
+        .unwrap();
+    let id = filed["jobs"][0]["document_id"].as_str().unwrap().to_owned();
+    filing::document_classify(
+        &mut c,
+        DocumentClassify {
+            id: id.clone(),
+            title: "Classified paper".into(),
+            doc_type: "paper".into(),
+            authority: "formal".into(),
+            topics: vec!["old-topic".into()],
+            scholarly: true,
+        },
+    )
+    .unwrap();
+    filing::document_classify(
+        &mut c,
+        DocumentClassify {
+            id: id.clone(),
+            title: "Replacement paper".into(),
+            doc_type: "paper".into(),
+            authority: "baseline".into(),
+            topics: vec!["new-topic".into()],
+            scholarly: true,
+        },
+    )
+    .unwrap();
+    let shown = filing::document_show(&c, &id).unwrap();
+    assert_eq!(shown["document"]["title"], "Replacement paper");
+    assert_eq!(
+        shown["document"]["topics"],
+        serde_json::json!(["new-topic"])
+    );
+    assert_eq!(shown["document"]["zotero_status"], "not_applicable");
+    assert!(
+        filing::document_search(&c, "old-topic", 10).unwrap()["documents"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        filing::document_search(&c, "new-topic", 10).unwrap()["documents"][0]["doc_type"],
+        "paper"
+    );
+}
+
+fn filed_document(dir: &TempDir, c: &mut Connection, sensitivity: &str) -> String {
+    let input = dir.path().join(format!("{}.txt", id()));
+    fs::write(&input, id()).unwrap();
+    let added = inbox_add(
+        c,
+        InboxAdd {
+            sensitivity: sensitivity.into(),
+            files: vec![input],
+        },
+        &dir.path().join("inbox"),
+    )
+    .unwrap();
+    tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(filing::process_with_extractor(
+            c,
+            InboxProcess {
+                limit: None,
+                job_ids: vec![added["jobs"][0]["id"].as_str().unwrap().into()],
+            },
+            dir.path(),
+            &filing::SystemdPdfExtractor,
+        ))
+        .unwrap()["jobs"][0]["document_id"]
+        .as_str()
+        .unwrap()
+        .into()
+}
+
+#[test]
+fn classification_and_zotero_filters_cover_importability_and_reclassification() {
+    let (dir, mut c) = db();
+    let public_pdf = filed_document(&dir, &mut c, "public");
+    c.execute(
+        "UPDATE documents SET media_type='application/pdf' WHERE id=?",
+        params![public_pdf],
+    )
+    .unwrap();
+    let classify = |c: &mut Connection, id: &str, scholarly: bool| {
+        filing::document_classify(
+            c,
+            DocumentClassify {
+                id: id.into(),
+                title: "Paper".into(),
+                doc_type: "paper".into(),
+                authority: "formal".into(),
+                topics: vec![],
+                scholarly,
+            },
+        )
+        .unwrap();
+    };
+    classify(&mut c, &public_pdf, true);
+    assert_eq!(
+        filing::document_list(
+            &c,
+            None,
+            Some("classified".into()),
+            Some("pending".into()),
+            10
+        )
+        .unwrap()["documents"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    filing::document_zotero_outcome(
+        &mut c,
+        ZoteroDetail {
+            id: public_pdf.clone(),
+            detail: "temporary failure".into(),
+        },
+        "failed",
+    )
+    .unwrap();
+    classify(&mut c, &public_pdf, true);
+    assert_eq!(
+        filing::document_list(&c, None, None, Some("pending".into()), 10).unwrap()["documents"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    classify(&mut c, &public_pdf, false);
+    assert_eq!(
+        filing::document_list(&c, None, None, Some("not_applicable".into()), 10).unwrap()
+            ["documents"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    for sensitivity in ["internal", "restricted"] {
+        let restricted_pdf = filed_document(&dir, &mut c, sensitivity);
+        c.execute(
+            "UPDATE documents SET media_type='application/pdf' WHERE id=?",
+            params![restricted_pdf],
+        )
+        .unwrap();
+        classify(&mut c, &restricted_pdf, true);
+    }
+    let public_text = filed_document(&dir, &mut c, "public");
+    classify(&mut c, &public_text, true);
+    assert_eq!(
+        c.query_row(
+            "SELECT count(*) FROM documents WHERE zotero_status='not_applicable'",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        4
+    );
+}
+
+#[test]
+fn zotero_link_requires_attachment_and_accepts_complete_identifier_pair() {
+    let (dir, mut c) = db();
+    let id = filed_document(&dir, &mut c, "public");
+    c.execute(
+        "UPDATE documents SET media_type='application/pdf',classification_status='classified',doc_type='paper',scholarly=1,zotero_status='pending' WHERE id=?",
+        params![id],
+    )
+    .unwrap();
+    assert!(filing::document_zotero_link(
+        &mut c,
+        ZoteroLink {
+            id: id.clone(),
+            item_key: "ITEM1234".into(),
+            attachment_key: None,
+        },
+    )
+    .is_err());
+    filing::document_zotero_link(
+        &mut c,
+        ZoteroLink {
+            id: id.clone(),
+            item_key: "ITEM1234".into(),
+            attachment_key: Some("ATCH5678".into()),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        c.query_row(
+            "SELECT zotero_status FROM documents WHERE id=?",
+            params![id],
+            |r| r.get::<_, String>(0)
+        )
+        .unwrap(),
+        "imported"
+    );
+}
+
+#[test]
 fn unsupported_inbox_bytes_are_quarantined() {
     let (dir, mut c) = db();
     let input = dir.path().join("binary");
@@ -932,6 +1156,33 @@ fn old_schema_errors_without_deleting_data() {
 }
 
 #[test]
+fn conflicting_schema_versions_fail_before_schema_mutation() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("knowledge.db");
+    let old = Connection::open(&path).unwrap();
+    old.execute_batch(
+        "CREATE TABLE schema_version(version INTEGER NOT NULL); INSERT INTO schema_version VALUES(5),(5); CREATE TABLE marker(value TEXT); INSERT INTO marker VALUES('keep');",
+    )
+    .unwrap();
+    drop(old);
+    assert!(open(&path).is_err());
+    let check = Connection::open(&path).unwrap();
+    assert_eq!(
+        check
+            .query_row("SELECT value FROM marker", [], |r| r.get::<_, String>(0))
+            .unwrap(),
+        "keep"
+    );
+    assert!(check
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE name='documents'",
+            [],
+            |_| Ok(())
+        )
+        .is_err());
+}
+
+#[test]
 fn existing_database_without_schema_version_is_untouched() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("knowledge.db");
@@ -1462,4 +1713,24 @@ async fn cli_returns_json_envelope_and_rejects_invalid_input() {
         Err(error) => error,
     };
     assert_eq!(error.exit_code(), 2);
+}
+
+#[test]
+fn classification_cli_requires_title() {
+    let result = Cli::try_parse_from([
+        "librarian-store",
+        "document",
+        "classify",
+        "00000000-0000-0000-0000-000000000000",
+        "--doc-type",
+        "paper",
+        "--authority",
+        "formal",
+    ]);
+    let error = match result {
+        Ok(_) => panic!("classification unexpectedly parsed without title"),
+        Err(error) => error,
+    };
+    assert_eq!(error.exit_code(), 2);
+    assert!(error.to_string().contains("--title"));
 }

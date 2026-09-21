@@ -596,7 +596,7 @@ async fn process_one(
         params![revision_id, source_id],
     )?;
     tx.execute(
-        "INSERT INTO documents VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO documents(id,byte_hash,media_type,safe_extension,title,original_basename,byte_count,sensitivity,archive_path,derived_text_path,extraction_status,page_count,source_id,source_revision_id,classification_status,scholarly,zotero_status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         params![
             document_id,
             expected,
@@ -612,6 +612,9 @@ async fn process_one(
             extracted.pages,
             source_id,
             revision_id,
+            "unclassified",
+            false,
+            "not_applicable",
             timestamp,
             timestamp
         ],
@@ -638,7 +641,7 @@ async fn process_one(
         )?;
         tx.execute(
             "INSERT INTO document_fts VALUES(?,?,?)",
-            params![chunk_id, document_id, text],
+            params![chunk_id, document_id, format!("{text} {basename}")],
         )?;
     }
     let changed = tx.execute("UPDATE inbox_jobs SET status='filed',error_detail=NULL,lease_owner=NULL,lease_until=NULL,updated_at=? WHERE id=? AND status='processing' AND lease_owner=? AND lease_until > ?", params![timestamp, job_id, lease_owner, timestamp])?;
@@ -725,13 +728,27 @@ fn truncate_utf8(value: String, max_bytes: usize) -> String {
 }
 fn document_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<serde_json::Value> {
     Ok(
-        serde_json::json!({"id":row.get::<_,String>(0)?,"byte_hash":row.get::<_,String>(1)?,"media_type":row.get::<_,String>(2)?,"title":row.get::<_,String>(3)?,"original_basename":row.get::<_,String>(4)?,"byte_count":row.get::<_,i64>(5)?,"sensitivity":row.get::<_,String>(6)?,"archive_path":row.get::<_,String>(7)?,"derived_text_path":row.get::<_,String>(8)?,"extraction_status":row.get::<_,String>(9)?,"page_count":row.get::<_,Option<i64>>(10)?,"source_id":row.get::<_,String>(11)?,"source_revision_id":row.get::<_,String>(12)?,"created_at":row.get::<_,String>(13)?,"updated_at":row.get::<_,String>(14)?}),
+        serde_json::json!({"id":row.get::<_,String>(0)?,"byte_hash":row.get::<_,String>(1)?,"media_type":row.get::<_,String>(2)?,"title":row.get::<_,String>(3)?,"original_basename":row.get::<_,String>(4)?,"byte_count":row.get::<_,i64>(5)?,"sensitivity":row.get::<_,String>(6)?,"archive_path":row.get::<_,String>(7)?,"derived_text_path":row.get::<_,String>(8)?,"extraction_status":row.get::<_,String>(9)?,"page_count":row.get::<_,Option<i64>>(10)?,"source_id":row.get::<_,String>(11)?,"source_revision_id":row.get::<_,String>(12)?,"classification_status":row.get::<_,String>(13)?,"doc_type":row.get::<_,Option<String>>(14)?,"authority":row.get::<_,Option<String>>(15)?,"scholarly":row.get::<_,bool>(16)?,"zotero_status":row.get::<_,String>(17)?,"zotero_item_key":row.get::<_,Option<String>>(18)?,"zotero_attachment_key":row.get::<_,Option<String>>(19)?,"zotero_detail":row.get::<_,Option<String>>(20)?,"classification_at":row.get::<_,Option<String>>(21)?,"created_at":row.get::<_,String>(22)?,"updated_at":row.get::<_,String>(23)?,"topics":Vec::<String>::new()}),
     )
+}
+
+fn document_select() -> &'static str {
+    "id,byte_hash,media_type,title,original_basename,byte_count,sensitivity,archive_path,derived_text_path,extraction_status,page_count,source_id,source_revision_id,classification_status,doc_type,authority,scholarly,zotero_status,zotero_item_key,zotero_attachment_key,zotero_detail,classification_at,created_at,updated_at"
+}
+fn add_topics(c: &Connection, document: &mut serde_json::Value, id: &str) -> Result<()> {
+    let mut st = c.prepare("SELECT t.name FROM document_topics dt JOIN topics t ON t.id=dt.topic_id WHERE dt.document_id=? ORDER BY t.name")?;
+    document["topics"] = serde_json::to_value(
+        st.query_map(params![id], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?,
+    )?;
+    Ok(())
 }
 
 pub(crate) fn document_list(
     c: &Connection,
     status: Option<String>,
+    classification_status: Option<String>,
+    zotero_status: Option<String>,
     limit: u32,
 ) -> Result<serde_json::Value> {
     validate_document_limit(limit)?;
@@ -741,18 +758,60 @@ pub(crate) fn document_list(
     {
         bail!("invalid document status");
     }
-    let mut sql = "SELECT id,byte_hash,media_type,title,original_basename,byte_count,sensitivity,archive_path,derived_text_path,extraction_status,page_count,source_id,source_revision_id,created_at,updated_at FROM documents".to_string();
+    validate_filter(
+        classification_status.as_deref(),
+        &["unclassified", "classified"],
+        "classification status",
+    )?;
+    validate_filter(
+        zotero_status.as_deref(),
+        &["not_applicable", "pending", "imported", "failed", "skipped"],
+        "zotero status",
+    )?;
+    let mut sql = format!("SELECT {} FROM documents", document_select());
+    let mut filters = Vec::new();
     if status.is_some() {
-        sql.push_str(" WHERE extraction_status=?");
+        filters.push("extraction_status=?");
+    }
+    if classification_status.is_some() {
+        filters.push("classification_status=?");
+    }
+    if zotero_status.is_some() {
+        filters.push("zotero_status=?");
+    }
+    if !filters.is_empty() {
+        sql.push_str(" WHERE ");
+        sql.push_str(&filters.join(" AND "));
     }
     sql.push_str(" ORDER BY created_at,id LIMIT ?");
     let mut statement = c.prepare(&sql)?;
-    let rows = if let Some(value) = status {
-        statement.query_map(params![value, limit], document_row)?
-    } else {
-        statement.query_map(params![limit], document_row)?
-    };
-    Ok(serde_json::json!({"documents":rows.collect::<rusqlite::Result<Vec<_>>>()?}))
+    let mut values: Vec<&dyn rusqlite::ToSql> = Vec::new();
+    if let Some(value) = status.as_ref() {
+        values.push(value);
+    }
+    if let Some(value) = classification_status.as_ref() {
+        values.push(value);
+    }
+    if let Some(value) = zotero_status.as_ref() {
+        values.push(value);
+    }
+    values.push(&limit);
+    let mut documents = statement
+        .query_map(values.as_slice(), document_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    drop(statement);
+    for document in &mut documents {
+        let id = document["id"].as_str().unwrap().to_owned();
+        add_topics(c, document, &id)?;
+    }
+    Ok(serde_json::json!({"documents":documents}))
+}
+
+fn validate_filter(value: Option<&str>, allowed: &[&str], label: &str) -> Result<()> {
+    if value.is_some_and(|v| !allowed.contains(&v)) {
+        bail!("invalid {label}");
+    }
+    Ok(())
 }
 
 pub(crate) fn document_show(c: &Connection, document_id: &str) -> Result<serde_json::Value> {
@@ -766,7 +825,15 @@ pub(crate) fn document_show_with_limit(
 ) -> Result<serde_json::Value> {
     Uuid::parse_str(document_id).context("invalid document id")?;
     validate_document_limit(limit)?;
-    let document = c.query_row("SELECT id,byte_hash,media_type,title,original_basename,byte_count,sensitivity,archive_path,derived_text_path,extraction_status,page_count,source_id,source_revision_id,created_at,updated_at FROM documents WHERE id=?", params![document_id], document_row).optional()?.context("document not found")?;
+    let mut document = c
+        .query_row(
+            &format!("SELECT {} FROM documents WHERE id=?", document_select()),
+            params![document_id],
+            document_row,
+        )
+        .optional()?
+        .context("document not found")?;
+    add_topics(c, &mut document, document_id)?;
     let mut statement = c.prepare("SELECT ordinal,page_number,start_line,end_line,locator,text,text_hash FROM document_chunks WHERE document_id=? ORDER BY ordinal LIMIT ?")?;
     let chunks = statement.query_map(params![document_id, limit], |row| {
         let text = truncate_utf8(row.get::<_, String>(5)?, MAX_CHUNK_BYTES);
@@ -781,11 +848,217 @@ pub(crate) fn document_search(
     limit: u32,
 ) -> Result<serde_json::Value> {
     validate_document_limit(limit)?;
-    let query = safe_fts_query(query);
+    let query = safe_document_fts_query(query);
     if query.is_empty() {
         return Ok(serde_json::json!({"documents":[]}));
     }
-    let mut statement = c.prepare("SELECT f.document_id,d.byte_hash,d.media_type,d.title,d.original_basename,d.sensitivity,c.locator,substr(c.text,1,512) FROM document_fts f JOIN documents d ON d.id=f.document_id JOIN document_chunks c ON c.id=f.chunk_id WHERE document_fts MATCH ? ORDER BY bm25(document_fts) LIMIT ?")?;
-    let rows = statement.query_map(params![query,limit], |row| Ok(serde_json::json!({"document_id":row.get::<_,String>(0)?,"byte_hash":row.get::<_,String>(1)?,"media_type":row.get::<_,String>(2)?,"title":row.get::<_,String>(3)?,"original_basename":row.get::<_,String>(4)?,"sensitivity":row.get::<_,String>(5)?,"locator":row.get::<_,String>(6)?,"snippet":row.get::<_,String>(7)?})))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut statement = c.prepare("SELECT f.document_id,d.byte_hash,d.media_type,d.title,d.original_basename,d.sensitivity,d.classification_status,d.doc_type,d.authority,d.scholarly,d.zotero_status,(SELECT group_concat(t.name,' ') FROM document_topics dt JOIN topics t ON t.id=dt.topic_id WHERE dt.document_id=d.id),c.locator,substr(c.text,1,512) FROM document_fts f JOIN documents d ON d.id=f.document_id JOIN document_chunks c ON c.id=f.chunk_id WHERE document_fts MATCH ? ORDER BY bm25(document_fts) LIMIT ?")?;
+    let rows = statement.query_map(params![query,limit], |row| Ok(serde_json::json!({"document_id":row.get::<_,String>(0)?,"byte_hash":row.get::<_,String>(1)?,"media_type":row.get::<_,String>(2)?,"title":row.get::<_,String>(3)?,"original_basename":row.get::<_,String>(4)?,"sensitivity":row.get::<_,String>(5)?,"classification_status":row.get::<_,String>(6)?,"doc_type":row.get::<_,Option<String>>(7)?,"authority":row.get::<_,Option<String>>(8)?,"scholarly":row.get::<_,bool>(9)?,"zotero_status":row.get::<_,String>(10)?,"topics":row.get::<_,Option<String>>(11)?.map(|s| s.split(' ').map(str::to_owned).collect::<Vec<_>>()).unwrap_or_default(),"locator":row.get::<_,String>(12)?,"snippet":row.get::<_,String>(13)?})))?.collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(serde_json::json!({"documents":rows}))
+}
+
+fn safe_document_fts_query(input: &str) -> String {
+    input
+        .split_whitespace()
+        .filter_map(|word| {
+            let word = word
+                .chars()
+                .filter(|c| c.is_alphanumeric() || matches!(c, '-' | '_'))
+                .collect::<String>();
+            (!word.is_empty()).then(|| format!("\"{word}\"*"))
+        })
+        .collect::<Vec<_>>()
+        .join(" OR ")
+}
+
+fn valid_document_type(value: &str) -> bool {
+    ["paper", "technical-document", "other"].contains(&value)
+}
+fn valid_authority(value: &str) -> bool {
+    ["formal", "baseline", "delivered", "working"].contains(&value)
+}
+fn detail(value: &str) -> Result<()> {
+    if value.trim().is_empty() || value.chars().count() > 512 {
+        bail!("detail must be nonempty and at most 512 characters");
+    }
+    Ok(())
+}
+fn zotero_key(value: &str) -> Result<()> {
+    if value.len() != 8 || !value.bytes().all(|b| b.is_ascii_alphanumeric()) {
+        bail!("invalid Zotero key");
+    }
+    Ok(())
+}
+fn document_qualifies(row: &(String, String, String, String, bool, String)) -> bool {
+    row.0 == "filed"
+        && row.1 == "public"
+        && row.2 == "application/pdf"
+        && row.3 == "classified"
+        && row.4
+        && row.5 == "paper"
+}
+fn rebuild_document_fts(tx: &Transaction<'_>) -> Result<()> {
+    tx.execute("DELETE FROM document_fts", [])?;
+    tx.execute("INSERT INTO document_fts(chunk_id,document_id,content) SELECT dc.id,dc.document_id,dc.text||' '||d.title||' '||COALESCE((SELECT group_concat(t.name,' ') FROM document_topics dt JOIN topics t ON t.id=dt.topic_id WHERE dt.document_id=d.id),'')||' '||COALESCE(d.doc_type,'')||' '||COALESCE(d.authority,'') FROM document_chunks dc JOIN documents d ON d.id=dc.document_id", [])?;
+    Ok(())
+}
+
+pub(crate) fn document_classify(
+    c: &mut Connection,
+    a: DocumentClassify,
+) -> Result<serde_json::Value> {
+    Uuid::parse_str(&a.id).context("invalid document id")?;
+    if a.title.trim().is_empty() {
+        bail!("title must not be empty");
+    }
+    if !valid_document_type(&a.doc_type) {
+        bail!("invalid document type");
+    }
+    if !valid_authority(&a.authority) {
+        bail!("invalid authority");
+    }
+    for topic in &a.topics {
+        if topic.trim().is_empty() {
+            bail!("topics must not be empty");
+        }
+    }
+    let tx = c.transaction()?;
+    let (status, sensitivity, media_type, zotero): (String, String, String, String) = tx
+        .query_row(
+            "SELECT extraction_status,sensitivity,media_type,zotero_status FROM documents WHERE id=?",
+            params![a.id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()?
+        .context("document not found")?;
+    if status != "filed" {
+        bail!("document must be filed");
+    }
+    let next_zotero = if zotero == "imported" {
+        "imported"
+    } else if document_qualifies(&(
+        status.clone(),
+        sensitivity,
+        media_type,
+        "classified".into(),
+        a.scholarly,
+        a.doc_type.clone(),
+    )) {
+        "pending"
+    } else {
+        "not_applicable"
+    };
+    let timestamp = now();
+    tx.execute("UPDATE documents SET title=?,classification_status='classified',doc_type=?,authority=?,scholarly=?,zotero_status=?,zotero_detail=NULL,classification_at=?,updated_at=? WHERE id=?", params![a.title,a.doc_type,a.authority,a.scholarly,next_zotero,timestamp,timestamp,a.id])?;
+    tx.execute(
+        "DELETE FROM document_topics WHERE document_id=?",
+        params![a.id],
+    )?;
+    for topic in a.topics {
+        let slug = normalize(&topic);
+        tx.execute(
+            "INSERT OR IGNORE INTO topics(id,name,slug) VALUES(?,?,?)",
+            params![id(), topic.trim(), slug],
+        )?;
+        let topic_id: String =
+            tx.query_row("SELECT id FROM topics WHERE slug=?", params![slug], |r| {
+                r.get(0)
+            })?;
+        tx.execute(
+            "INSERT INTO document_topics VALUES(?,?)",
+            params![a.id, topic_id],
+        )?;
+    }
+    event(
+        &tx,
+        "document",
+        &a.id,
+        "classify",
+        serde_json::json!({"doc_type":a.doc_type,"authority":a.authority,"scholarly":a.scholarly}),
+    )?;
+    rebuild_document_fts(&tx)?;
+    tx.commit()?;
+    Ok(serde_json::json!({"id":a.id,"status":"classified","zotero_status":next_zotero}))
+}
+
+pub(crate) fn document_zotero_link(c: &mut Connection, a: ZoteroLink) -> Result<serde_json::Value> {
+    Uuid::parse_str(&a.id).context("invalid document id")?;
+    zotero_key(&a.item_key)?;
+    let attachment_key = a
+        .attachment_key
+        .as_deref()
+        .filter(|key| !key.trim().is_empty())
+        .context("attachment key must be nonempty")?;
+    zotero_key(attachment_key)?;
+    let tx = c.transaction()?;
+    let row: (String,String,String,String,bool,String,String,Option<String>,Option<String>) = tx.query_row("SELECT extraction_status,sensitivity,media_type,classification_status,scholarly,COALESCE(doc_type,''),zotero_status,zotero_item_key,zotero_attachment_key FROM documents WHERE id=?", params![a.id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?,r.get(8)?))).optional()?.context("document not found")?;
+    if row.6 == "imported" {
+        bail!("imported document cannot be relinked");
+    }
+    if !document_qualifies(&(
+        row.0.clone(),
+        row.1.clone(),
+        row.2.clone(),
+        row.3.clone(),
+        row.4,
+        row.5.clone(),
+    )) {
+        bail!("document does not qualify for Zotero linking");
+    }
+    tx.execute("UPDATE documents SET zotero_status='imported',zotero_item_key=?,zotero_attachment_key=?,zotero_detail=NULL,updated_at=? WHERE id=?", params![a.item_key,attachment_key,now(),a.id])?;
+    event(
+        &tx,
+        "document",
+        &a.id,
+        "zotero_link",
+        serde_json::json!({"item_key":a.item_key,"attachment_key":a.attachment_key}),
+    )?;
+    tx.commit()?;
+    Ok(serde_json::json!({"id":a.id,"zotero_status":"imported"}))
+}
+
+pub(crate) fn document_zotero_outcome(
+    c: &mut Connection,
+    a: ZoteroDetail,
+    outcome: &str,
+) -> Result<serde_json::Value> {
+    Uuid::parse_str(&a.id).context("invalid document id")?;
+    detail(&a.detail)?;
+    let tx = c.transaction()?;
+    let row: (String,String,String,String,bool,String,String) = tx.query_row("SELECT extraction_status,sensitivity,media_type,classification_status,scholarly,COALESCE(doc_type,''),zotero_status FROM documents WHERE id=?", params![a.id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?))).optional()?.context("document not found")?;
+    if row.6 == "imported" {
+        bail!("imported document state is immutable");
+    }
+    if outcome == "failed"
+        && !document_qualifies(&(
+            row.0.clone(),
+            row.1.clone(),
+            row.2.clone(),
+            row.3.clone(),
+            row.4,
+            row.5.clone(),
+        ))
+    {
+        bail!("document does not qualify for Zotero linking");
+    }
+    if row.0 != "filed" {
+        bail!("document must be filed");
+    }
+    tx.execute(
+        "UPDATE documents SET zotero_status=?,zotero_detail=?,updated_at=? WHERE id=?",
+        params![outcome, a.detail, now(), a.id],
+    )?;
+    event(
+        &tx,
+        "document",
+        &a.id,
+        if outcome == "failed" {
+            "zotero_failed"
+        } else {
+            "zotero_skip"
+        },
+        serde_json::json!({"detail":a.detail}),
+    )?;
+    tx.commit()?;
+    Ok(serde_json::json!({"id":a.id,"zotero_status":outcome}))
 }

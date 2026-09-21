@@ -28,7 +28,7 @@ const MAX_REVIEW_SCRIPT: usize = 512;
 const DEFAULT_LIMIT: u32 = 20;
 const CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_OUTPUT: usize = 4096;
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 const MAX_INBOX_INPUT_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_INBOX_BASENAME_BYTES: usize = 128;
 const INBOX_STATUSES: &[&str] = &[
@@ -75,8 +75,9 @@ CREATE TABLE IF NOT EXISTS review_reasons(claim_id TEXT NOT NULL REFERENCES clai
 CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT, occurred_at TEXT NOT NULL, object_type TEXT NOT NULL, object_id TEXT NOT NULL, operation TEXT NOT NULL, details_json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS inbox_jobs(id TEXT PRIMARY KEY, status TEXT NOT NULL CHECK(status IN ('pending','processing','filed','duplicate','quarantined','failed')), sensitivity TEXT NOT NULL CHECK(sensitivity IN ('public','internal','restricted')), sha256 TEXT NOT NULL, original_basename TEXT NOT NULL, published_path TEXT, byte_count INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, error_detail TEXT, lease_owner TEXT, lease_until TEXT);
 CREATE INDEX IF NOT EXISTS inbox_jobs_sha256_idx ON inbox_jobs(sha256);
-CREATE TABLE IF NOT EXISTS documents(id TEXT PRIMARY KEY, byte_hash TEXT NOT NULL UNIQUE, media_type TEXT NOT NULL CHECK(media_type IN ('application/pdf','text/plain')), safe_extension TEXT NOT NULL, title TEXT NOT NULL, original_basename TEXT NOT NULL, byte_count INTEGER NOT NULL, sensitivity TEXT NOT NULL CHECK(sensitivity IN ('public','internal','restricted')), archive_path TEXT NOT NULL, derived_text_path TEXT NOT NULL, extraction_status TEXT NOT NULL CHECK(extraction_status IN ('filed','quarantined','needs_ocr')), page_count INTEGER, source_id TEXT NOT NULL REFERENCES sources(id), source_revision_id TEXT NOT NULL REFERENCES source_revisions(id), created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS document_chunks(id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE, ordinal INTEGER NOT NULL, page_number INTEGER, start_line INTEGER NOT NULL, end_line INTEGER NOT NULL, locator TEXT NOT NULL, text TEXT NOT NULL, text_hash TEXT NOT NULL, UNIQUE(document_id,ordinal), UNIQUE(document_id,locator));
+ CREATE TABLE IF NOT EXISTS documents(id TEXT PRIMARY KEY, byte_hash TEXT NOT NULL UNIQUE, media_type TEXT NOT NULL CHECK(media_type IN ('application/pdf','text/plain')), safe_extension TEXT NOT NULL, title TEXT NOT NULL, original_basename TEXT NOT NULL, byte_count INTEGER NOT NULL, sensitivity TEXT NOT NULL CHECK(sensitivity IN ('public','internal','restricted')), archive_path TEXT NOT NULL, derived_text_path TEXT NOT NULL, extraction_status TEXT NOT NULL CHECK(extraction_status IN ('filed','quarantined','needs_ocr')), page_count INTEGER, source_id TEXT NOT NULL REFERENCES sources(id), source_revision_id TEXT NOT NULL REFERENCES source_revisions(id), classification_status TEXT NOT NULL DEFAULT 'unclassified' CHECK(classification_status IN ('unclassified','classified')), doc_type TEXT CHECK(doc_type IS NULL OR doc_type IN ('paper','technical-document','other')), authority TEXT CHECK(authority IS NULL OR authority IN ('formal','baseline','delivered','working')), scholarly INTEGER NOT NULL DEFAULT 0 CHECK(scholarly IN (0,1)), zotero_status TEXT NOT NULL DEFAULT 'not_applicable' CHECK(zotero_status IN ('not_applicable','pending','imported','failed','skipped')), zotero_item_key TEXT, zotero_attachment_key TEXT, zotero_detail TEXT, classification_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS document_chunks(id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE, ordinal INTEGER NOT NULL, page_number INTEGER, start_line INTEGER NOT NULL, end_line INTEGER NOT NULL, locator TEXT NOT NULL, text TEXT NOT NULL, text_hash TEXT NOT NULL, UNIQUE(document_id,ordinal), UNIQUE(document_id,locator));
+ CREATE TABLE IF NOT EXISTS document_topics(document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE, topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE, PRIMARY KEY(document_id,topic_id));
 CREATE VIRTUAL TABLE IF NOT EXISTS document_fts USING fts5(chunk_id UNINDEXED, document_id UNINDEXED, content);
 CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(claim_id UNINDEXED, content);
 "#;
@@ -131,6 +132,10 @@ enum DocumentCommand {
     List(DocumentList),
     Show(DocumentShow),
     Search(DocumentSearch),
+    Classify(DocumentClassify),
+    ZoteroLink(ZoteroLink),
+    ZoteroFailed(ZoteroDetail),
+    ZoteroSkip(ZoteroDetail),
 }
 #[derive(Args)]
 struct DocumentShow {
@@ -142,8 +147,40 @@ struct DocumentShow {
 struct DocumentList {
     #[arg(long)]
     status: Option<String>,
+    #[arg(long)]
+    classification_status: Option<String>,
+    #[arg(long)]
+    zotero_status: Option<String>,
     #[arg(long, default_value_t=DEFAULT_LIMIT)]
     limit: u32,
+}
+#[derive(Args)]
+struct DocumentClassify {
+    id: String,
+    #[arg(long)]
+    title: String,
+    #[arg(long = "doc-type")]
+    doc_type: String,
+    #[arg(long)]
+    authority: String,
+    #[arg(long = "topic")]
+    topics: Vec<String>,
+    #[arg(long)]
+    scholarly: bool,
+}
+#[derive(Args)]
+struct ZoteroLink {
+    id: String,
+    #[arg(long = "item-key")]
+    item_key: String,
+    #[arg(long = "attachment-key")]
+    attachment_key: Option<String>,
+}
+#[derive(Args)]
+struct ZoteroDetail {
+    id: String,
+    #[arg(long)]
+    detail: String,
 }
 #[derive(Args)]
 struct DocumentSearch {
@@ -380,20 +417,23 @@ fn open(path: &Path) -> Result<Connection> {
             "database has no recognized schema version; back up it, delete it, and run init to reinitialize"
         )
     }
-    c.execute_batch("CREATE TABLE IF NOT EXISTS schema_version(version INTEGER NOT NULL);")?;
-    let version: Option<i64> = c
-        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
-            r.get(0)
-        })
-        .optional()?;
-    match version {
-        Some(version) if version != SCHEMA_VERSION => bail!(
-            "unsupported database schema version {version}; back up it, delete it, and run init to reinitialize (expected {SCHEMA_VERSION})"
-        ),
-        None if existed && !fresh => bail!(
-            "database has no schema version; back up it, delete it, and run init to reinitialize"
-        ),
-        _ => {}
+    if has_schema_version {
+        let mut statement = c.prepare("SELECT version FROM schema_version")?;
+        let versions = statement
+            .query_map([], |r| r.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if versions.is_empty() {
+            bail!("database has no schema version; back up it, delete it, and run init to reinitialize");
+        }
+        if versions.len() != 1 || versions[0] != SCHEMA_VERSION {
+            bail!(
+                "database has unsupported or conflicting schema versions; back up it, delete it, and run init to reinitialize (expected {SCHEMA_VERSION})"
+            );
+        }
+    } else if existed && !fresh {
+        bail!(
+            "database has no recognized schema version; back up it, delete it, and run init to reinitialize"
+        );
     }
     c.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
     c.execute_batch(SCHEMA)?;
@@ -901,9 +941,21 @@ async fn execute_at(cli: Cli, path: PathBuf) -> Result<serde_json::Value> {
             filing::process(&mut c, a, &root).await
         }
         CommandLine::Document { command } => match command {
-            DocumentCommand::List(a) => filing::document_list(&c, a.status, a.limit),
+            DocumentCommand::List(a) => filing::document_list(
+                &c,
+                a.status,
+                a.classification_status,
+                a.zotero_status,
+                a.limit,
+            ),
             DocumentCommand::Show(a) => filing::document_show_with_limit(&c, &a.id, a.limit),
             DocumentCommand::Search(a) => filing::document_search(&c, &a.query, a.limit),
+            DocumentCommand::Classify(a) => filing::document_classify(&mut c, a),
+            DocumentCommand::ZoteroLink(a) => filing::document_zotero_link(&mut c, a),
+            DocumentCommand::ZoteroFailed(a) => {
+                filing::document_zotero_outcome(&mut c, a, "failed")
+            }
+            DocumentCommand::ZoteroSkip(a) => filing::document_zotero_outcome(&mut c, a, "skipped"),
         },
     }
 }
