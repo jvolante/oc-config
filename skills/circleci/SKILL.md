@@ -22,7 +22,7 @@ A single commit usually triggers **several workflows** (`build-and-test`,
 `build-release`, `build-debug`, `sheath-scan-and-upload`, …), all sharing the same
 commit subject, so a flat build list is ambiguous.
 
-- `cci-pipeline-status [sha]` — full pipeline → workflow → job tree; maps a failing build number back to its workflow.
+- `cci-pipeline-status [sha]` — full pipeline → workflow → job tree; maps a failing build number back to its workflow. It accepts an explicit project and branch as `cci-pipeline-status <sha> <project-slug> [branch]` and prints the full pipeline UUID.
 - `cci-failed-logs --workflow build-and-test` — scope log fetching to the PR-gating workflow so unrelated ones don't shadow the failure.
 
 ## Helper Functions (preferred)
@@ -56,9 +56,13 @@ cci-failed-logs <project-slug> <branch>         # specific project and branch
 # by matching the pipeline to the current remote tracking SHA. _Do not_ use your own commands to wait
 # on jobs, use this one.
 cci-wait-on-jobs                                # infer slug + branch from git
-cci-wait-on-jobs <project-slug> [branch]        # explicit slug/branch
+cci-wait-on-jobs <project-slug> [branch]        # explicit slug/branch; slash-containing branches are supported
 cci-wait-on-jobs --timeout <seconds>            # give up after N seconds (default: 36000)
 cci-wait-on-jobs --no-logs                      # don't automatically print logs for failed jobs on completion
+
+# Wait on an exact full pipeline UUID, avoiding branch/ref ambiguity
+cci-wait-pipeline <pipeline-uuid>
+cci-wait-pipeline <pipeline-uuid> --interval 15 --timeout 3600
 
 # Build log output for a job (falls back to presigned URLs on self-hosted CCI instances)
 cci-log <project-slug> <build-num>
@@ -66,10 +70,11 @@ cci-log <project-slug> <build-num>
 # It's best to dispatch @build-test-summarizer to run cci-failed-logs, cci-log, or cci-wait-on-jobs for you so it will
 # summarize the output.
 #
-# When dispatching the summarizer: give it the EXACT build numbers and the expected workflow
-# name (get them from cci-pipeline-status first). Ask it to report verbatim error lines plus
-# the commit SHA it observed, and to NOT synthesize a root cause. On multi-workflow repos it
-# can otherwise grab logs from the wrong workflow (e.g. sheath) and misreport which jobs failed.
+# When dispatching the summarizer: give it the exact commit SHA, full pipeline UUID or exact
+# build numbers, and expected workflow name. Ask it to report verbatim error lines, command
+# exit status, skipped tests, and the commit SHA it observed. It must not synthesize a root
+# cause from incomplete logs. On multi-workflow repos it can otherwise grab logs from the
+# wrong workflow (e.g. sheath) and misreport which jobs failed.
 
 # Recent builds across all projects
 cci-recent [limit]                              # default 25

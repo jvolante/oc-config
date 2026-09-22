@@ -1,42 +1,68 @@
 ---
-description: Semantically search past sessions by description — finds the best match using LLM judgment over titles and message snippets
+description: Search past OpenCode sessions by description, keywords, content, date, and project
 ---
 
-Find the session that best matches the description in `$ARGUMENTS`. If no arguments are
-given, ask the user what they're looking for.
+Find the sessions that best match `$ARGUMENTS`. If no arguments are given, ask the user
+what they're looking for. Use both semantic reasoning and database search; titles alone
+are often too terse.
 
 ## Step 1 — Pull candidate sessions
 
-Fetch the 200 most recent top-level sessions (no subagents):
+First extract useful literal terms and constraints from the request: distinctive nouns,
+synonyms, project names, and date ranges such as "July" or "a few weeks ago". Search
+all sessions, including subagents, because research conversations are often split across
+the parent and short-lived explore/general sessions.
+
+Fetch a broad title/date/project candidate list:
 
 ```bash
-opencode db "SELECT id, title, directory, time_updated FROM session WHERE parent_id IS NULL ORDER BY time_updated DESC LIMIT 200" --format json | jq -r '.[] | [(.time_updated / 1000 | todate), .id, .directory, .title] | @tsv'
+opencode db "SELECT id, title, directory, parent_id, time_created, time_updated FROM session ORDER BY time_updated DESC LIMIT 2000" --format json | jq -r '.[] | [(.time_created / 1000 | todate), (.time_updated / 1000 | todate), .id, .parent_id, .directory, .title] | @tsv'
 ```
 
 If the user mentioned a specific project directory (e.g. "in kestrel"), filter it:
 
 ```bash
-opencode db "SELECT id, title, directory, time_updated FROM session WHERE parent_id IS NULL AND directory LIKE '%kestrel%' ORDER BY time_updated DESC LIMIT 200" --format json | jq -r '.[] | [(.time_updated / 1000 | todate), .id, .directory, .title] | @tsv'
+opencode db "SELECT id, title, directory, parent_id, time_created, time_updated FROM session WHERE directory LIKE '%kestrel%' ORDER BY time_updated DESC LIMIT 2000" --format json | jq -r '.[] | [(.time_created / 1000 | todate), (.time_updated / 1000 | todate), .id, .parent_id, .directory, .title] | @tsv'
 ```
+
+For distinctive terms, search the actual conversation content in `part.data`, not just
+titles. Use one `LIKE` clause per term and aggregate by session so repeated mentions rank
+higher. Keep the query read-only and use the database's read-only command:
+
+```bash
+opencode db "SELECT s.id, s.title, s.directory, s.parent_id, s.time_created,
+  COUNT(*) AS matching_parts
+  FROM part p JOIN session s ON s.id = p.session_id
+  WHERE (lower(p.data) LIKE '%wire%' OR lower(p.data) LIKE '%powerline%'
+         OR lower(p.data) LIKE '%ranging%' OR lower(p.data) LIKE '%depth%')
+    AND s.time_created >= <start_ms> AND s.time_created < <end_ms>
+  GROUP BY s.id ORDER BY matching_parts DESC, s.time_created DESC" --format json
+```
+
+Replace the terms and date bounds with the user's request. Omit the date predicate when
+no date is stated. For a broad search, use the distinctive terms rather than common words
+like `the`, `code`, or `test`. Run separate focused queries when there are two themes, then
+look for sessions matching both themes.
 
 ## Step 2 — Semantic shortlist
 
-Read the full list of titles and use your judgment to pick the 5 most plausible
-matches for the user's description. Titles are often terse or auto-generated — look
-for conceptual overlap, not just keyword matches. Consider synonyms, related concepts,
-and workflow context (e.g. "fixed the tracker" might match "Tracker changes test plan"
-or "TrackBeforeDetect migration").
+Combine the title list with content-match results and use your judgment to pick the 5 most
+plausible matches. Rank exact distinctive-term matches above incidental mentions. Consider
+synonyms, related concepts, and workflow context (e.g. "wire detection and dense video
+depth" may match separate wire/ranging and monocular-depth sessions from the same week).
 
 ## Step 3 — Fetch opening messages for shortlisted sessions
 
-For each candidate, fetch the first user message to confirm context:
+For each candidate, fetch early text parts to confirm context. The current database stores
+conversation parts directly by `session_id`; do not assume the old `message` table has rows:
 
 ```bash
-opencode db "SELECT substr(p.data, 1, 500) FROM part p JOIN message m ON p.message_id = m.id WHERE m.session_id = '<id>' AND p.data NOT LIKE '%\"synthetic\":true%' ORDER BY m.time_created ASC LIMIT 1" --format json | jq -r '.[][]'
+opencode db "SELECT substr(data, 1, 1200) FROM part WHERE session_id = '<id>' AND data NOT LIKE '%\"synthetic\":true%' ORDER BY time_created ASC LIMIT 3" --format json | jq -r '.[][]'
 ```
 
-Extract the `text` field from the JSON blob. This reveals what the user actually asked
-in that session, which is far more informative than the auto-generated title.
+Extract the `text` field from each JSON blob. Search within the returned text for the
+distinctive terms and show the shortest useful snippets. This reveals what the user
+actually asked, which is more informative than the auto-generated title.
 
 ## Step 4 — Present results
 
@@ -44,6 +70,7 @@ Rank the candidates by relevance and show:
 - **Title** and date
 - **Project directory**
 - **Opening message** snippet (1–2 sentences)
+- **Why it matches**: the distinctive terms or topic overlap
 - **Resume**: `opencode --session <id>`
 
 Highlight the single best match at the top. If multiple sessions are plausible, list

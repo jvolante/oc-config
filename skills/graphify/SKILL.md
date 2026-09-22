@@ -1,201 +1,90 @@
 ---
-description: >
-  ALWAYS load this skill before using Glob, Grep, or Bash to answer any
-  architectural question: module structure, data flow, dependencies,
-  cross-cutting concerns, or navigating an unfamiliar codebase. You MUST
-  load this skill before searching files. Also load for shortest-path queries
-  between concepts or to explain a node. The graph is orders of magnitude
-  cheaper than file search — skipping it wastes tokens unnecessarily.
 name: graphify
+description: Use for architectural questions, codebase navigation, dependency tracing, shortest paths, node explanations, and reverse-impact queries when a Graphify knowledge graph may contain the answer. This skill only searches and queries graphs; graph creation and updates belong to the graph-builder agent.
 ---
 
-# /graphify
+# Graphify Queries
 
-Query and navigate a pre-built knowledge graph for a codebase or corpus.
+Use Graphify as a read-only navigation layer over an existing `graphify-out/graph.json`.
 
-## Usage
+## Scope
 
+- Use this skill for graph queries, shortest paths, node explanations, and affected-node traversal.
+- Do not build, update, cluster, label, or otherwise mutate a graph from this skill.
+- For a missing or stale graph, dispatch the `graph-builder` agent with the project path.
+- For cross-repository queries, use the target repository's graph explicitly.
+- Treat graph evidence as authoritative only for the nodes and edges returned. Do not invent missing relationships.
+
+## Commands
+
+Run from the project root containing `graphify-out/graph.json`:
+
+```bash
+graphify-smart query "QUESTION" [--dfs] [--budget N] [--graph PATH]
+graphify-smart path "NODE_A" "NODE_B" [--graph PATH]
+graphify-smart explain "NODE_NAME" [--graph PATH]
+graphify affected "NODE_NAME" [--relation RELATION] [--depth N] [--graph PATH]
 ```
-/graphify query "<question>"                          # BFS traversal - broad context
-/graphify query "<question>" --dfs                    # DFS - trace a specific path
-/graphify query "<question>" --budget 1500            # cap answer at N tokens
-/graphify path "ConceptA" "ConceptB"                  # shortest path between two concepts
-/graphify explain "NodeName"                          # plain-language explanation of a node
+
+`graphify-smart` is preferred for `query`, `path`, and `explain` because it performs its configured staleness check and supports native path/explain handling. Use the installed `graphify` binary for `affected` and `save-result`.
+
+Before querying, check that the graph exists:
+
+```bash
+test -f graphify-out/graph.json || {
+  printf 'ERROR: no Graphify graph found.\n' >&2
+  exit 1
+}
 ```
 
-To **build or update** a graph, dispatch the `graph-builder` subagent with the project path instead of using this skill.
+If the check fails, stop and dispatch `graph-builder`; do not run an extraction command yourself.
 
-## Routing
+## Query Selection
 
-- `/graphify query` → follow the **For /graphify query** section below
-- `/graphify path` → follow the **For /graphify path** section below
-- `/graphify explain` → follow the **For /graphify explain** section below
-- Any other invocation (build intent, path with no subcommand) → dispatch the `graph-builder` subagent with the given path
+- Use BFS for “what is connected to this?” and broad neighborhood questions.
+- Use DFS for a specific dependency or call chain.
+- Use `path` for the shortest relationship chain between two named nodes.
+- Use `explain` for a node and all direct incoming and outgoing connections.
+- Use `affected` for reverse dependencies and likely impact analysis. Add `--relation` when only calls, imports, references, or another relation matters.
 
-In all query sections below, run commands from the project root directory (the directory containing `graphify-out/`). Use `graphify-smart` rather than `graphify` directly — it handles incremental staleness checks automatically and provides native `path` and `explain` subcommands without requiring Python.
+## Evidence
 
-All commands accept an optional `--graph <path/to/graph.json>` flag to point at a graph that is not in the current directory tree.
+Query output contains `NODE` and `EDGE` records with labels, relations, confidence, source files, and locations. Cite the returned `src`, `loc`, or source-file metadata when making a codebase claim.
 
-**Cross-repo queries:** when your working directory is repo A but you want to query repo B's graph, always pass `--graph` explicitly — `graphify-smart` looks for `graphify-out/graph.json` relative to the current directory and will fail or query the wrong graph otherwise:
+If a result is empty or the graph lacks the required relationship, say so and fall back to ordinary source inspection only when appropriate. A graph query is not a substitute for reading the source when correctness depends on implementation details.
+
+## Cross-Repository Queries
+
+When the current directory is not the target repository, always provide the graph path:
 
 ```bash
 graphify-smart query "QUESTION" \
-  --graph /path/to/other-repo/graphify-out/graph.json
+  --graph /path/to/repository/graphify-out/graph.json
 ```
 
-**Preflight (all subcommands):** confirm the graph exists first. If it fails, stop and dispatch the `graph-builder` subagent with the current directory path to build one.
+## Surgical Inspection
 
-```bash
-test -f graphify-out/graph.json || { printf 'ERROR: No graph found.\n' >&2; exit 1; }
-```
-
-In every subcommand below, replace the uppercase placeholders (`QUESTION`, `NODE_A`, `NODE_NAME`, …) with the user's actual values.
-
----
-
-## For /graphify query
-
-Two traversal modes - choose based on the question:
-
-| Mode | Flag | Best for |
-|------|------|----------|
-| BFS (default) | _(none)_ | "What is X connected to?" - broad context, nearest neighbors first |
-| DFS | `--dfs` | "How does X reach Y?" - trace a specific chain or dependency path |
-
-```bash
-graphify-smart query "QUESTION" [--dfs] [--budget N] [--graph path/to/graph.json]
-```
-
-Add `--dfs` for chain-tracing questions, `--budget N` to cap output tokens (default 2000).
-
-Output lines have two forms — filter them as needed:
-
-```
-NODE label [src=file.cpp loc=L42 community=3]
-EDGE LabelA --relation [CONFIDENCE]--> LabelB
-```
-
-Useful filters:
-
-```bash
-# Only edges
-graphify-smart query "QUESTION" | grep '^EDGE'
-
-# Only nodes
-graphify-smart query "QUESTION" | grep '^NODE'
-
-# Filter edges by relation type (e.g. calls, inherits, contains)
-graphify-smart query "QUESTION" | grep -- '--calls'
-
-# Extract unique source files cited by the result
-graphify-smart query "QUESTION" | sed -n 's/^NODE .* \[src=\([^ ]*\) .*/\1/p' | sort -u
-```
-
-Read the output — node labels, edge relations, confidence tags, source locations — then answer using **only** what the graph contains. Quote `src=` locations when citing a specific fact. If the graph lacks enough information, say so — do not hallucinate edges.
-
-After writing the answer, save it back into the graph so it improves future queries:
-
-```bash
-graphify save-result --question "QUESTION" --answer "ANSWER" --type query --nodes NODE1 NODE2
-```
-
-Replace `QUESTION` with the question, `ANSWER` with your full answer text, `NODE1 NODE2` with the list of node labels you cited.
-
----
-
-## For /graphify path
-
-Find the shortest path between two named concepts in the graph.
-
-```bash
-graphify-smart path "NODE_A" "NODE_B" [--graph path/to/graph.json]
-```
-
-Example output:
-
-```
-Shortest path (2 hops):
-  _collect_concepts_from_body() --contains--> [EXTRACTED]
-  gen_tracker_types.py --contains--> [EXTRACTED]
-  _field_line()
-```
-
-Then explain the path in plain language — what each hop means, why it's significant.
-
-After writing the explanation, save it back:
-
-```bash
-graphify save-result --question "Path from NODE_A to NODE_B" --answer "ANSWER" --type path_query --nodes NODE_A NODE_B
-```
-
----
-
-## For /graphify explain
-
-Give a plain-language explanation of a single node — everything directly connected to it.
-
-```bash
-graphify-smart explain "NODE_NAME" [--graph path/to/graph.json]
-```
-
-Example output:
-
-```
-NODE: CopiAlgoRecipe
-  source: conanfile.py
-  type:   code
-  loc:    L6
-
-CONNECTIONS:
-  <--contains-- conanfile.py [EXTRACTED] (conanfile.py)
-  --inherits--> ConanFile [EXTRACTED] (conanfile.py)
-  --method--> .configure() [EXTRACTED] (conanfile.py)
-```
-
-Outgoing edges are shown as `-->`, incoming as `<--`. Then write a 3-5 sentence explanation of what this node is, what it connects to, and why those connections are significant. Use the source locations as citations.
-
-After writing the explanation, save it back:
-
-```bash
-graphify save-result --question "Explain NODE_NAME" --answer "ANSWER" --type explain --nodes NODE_NAME
-```
-
----
-
-## Raw jq recipes
-
-For surgical queries the subcommands don't cover, run `jq` directly against `graphify-out/graph.json`.
-
-**List all relation types present in this graph** — useful before querying so you know what edge vocabulary exists:
+For questions that need exact graph data, use `jq` without modifying the graph:
 
 ```bash
 jq -r '[.links[].relation] | unique[]' graphify-out/graph.json
-```
-
-**All nodes extracted from a specific source file:**
-
-```bash
-jq -r --arg f "src/foo.cpp" \
-  '.nodes[] | select(.source_file == $f) | .label' \
+jq -r --arg file "src/foo.cpp" \
+  '.nodes[] | select(.source_file == $file) | .label' \
   graphify-out/graph.json
 ```
 
-**All edges of a given relation type, with labels resolved** (ids are internal; labels are human-readable):
+Current Graphify JSON uses NetworkX node-link data, so relationships are normally under `.links`. If an older graph uses `.edges`, inspect that key instead.
+
+## Query Memory
+
+After answering a query, persist the answer only when it is grounded in graph nodes you can name:
 
 ```bash
-jq -r --arg rel "inherits" '
-  (reduce .nodes[] as $n ({}; .[$n.id] = $n.label)) as $l |
-  .links[] | select(.relation == $rel) |
-  "\($l[.source]) --\(.relation)--> \($l[.target])"
-' graphify-out/graph.json
+graphify save-result \
+  --question "QUESTION" \
+  --answer "ANSWER" \
+  --type query \
+  --nodes NODE1 NODE2
 ```
 
-**What module does node X belong to? List all nodes in the same community:**
-Communities are the graph's clustering of related nodes — roughly equivalent to module or subsystem boundaries.
-
-```bash
-jq -r --arg label "MyClass" '
-  (.nodes[] | select(.label == $label) | .community) as $c |
-  .nodes[] | select(.community == $c) | "\(.label) (\(.source_file))"
-' graphify-out/graph.json
-```
+Use `--type path_query` for a path explanation and `--type explain` for a node explanation.

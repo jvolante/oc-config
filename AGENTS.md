@@ -22,6 +22,10 @@ Only `find` over the nix store or the whole filesystem as a last resort. It's ex
 When working in systems programming languages (C/C++, Rust, Ada, etc.) it's important to try to reduce the number of memory allocations and frees the code must do **even if the surrounding code doesn't**. Software written in these languages is generally performance sensitive.
 Follow this guideline in other languages as well when it doesn't compromise readability.
 
+This is a NixOS system, if required commands for a development workflow are missing, check if there's a Nix devshell for the project. If something you need is still missing you can acquire it via `nix shell`
+
+When ssh'ing into a system, if ssh keys are not configured you may be able to find a password file in ~/secrets the password file will generally be named in the form <user>_default_pass
+
 # Editing Process
 
 Be efficient. The best code is the code never written.
@@ -130,6 +134,7 @@ Here are some additional programs in the environment beyond what's installed on 
 - `jq` : Query engine for JSON
 - `jaq` : Query engine for YAML, TOML, XML, and CBOR similar to `jq`
 - `sage` : SageMath symbolic math toolkit
+- `pandoc`: document format toolkit; helpful extensions are also installed
 - `syspython3`: Always available python environment guaranteed to have several packages installed:
     numpy cupy scipy polars scikit-learn networkx opencv h5py sympy altair manim ortools python-sat z3-solver highspy clingo libclang
 
@@ -169,4 +174,3 @@ For cross-project work, check and query each project's graph independently from 
 - prefer `cstdint` types
 - Annotate with `noexcept` and `[[nodiscard]]` and others where relevant
 - Prefer `.cpp` over `.cu` for translation units that call CUDA API functions but define no device code (`__global__`, `__device__`, `<<<...>>>`). Use `.cu` only when the file contains kernel definitions or device-side code.
-- Gate architecture-specific SIMD flags (`-mavx2`, `-mfma`, `-mcpu=...`) in CMake by probing the compiler with `check_cxx_compiler_flag`, NOT by branching on `CMAKE_SYSTEM_PROCESSOR`.

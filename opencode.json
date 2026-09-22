@@ -3,7 +3,168 @@
   "autoupdate": false,
   "model": "{env:OPENCODE_LARGE_MODEL}",
   "small_model": "{env:OPENCODE_TINY_MODEL}",
-  "lsp": false,
+  "lsp": {
+    "pyright": {
+      "disabled": true
+    },
+    "lua-ls": {
+      "command": [
+        "lua-language-server"
+      ],
+      "extensions": [
+        ".lua"
+      ]
+    },
+    "ruff": {
+      "command": [
+        "ruff",
+        "server"
+      ],
+      "extensions": [
+        ".py",
+        ".pyi"
+      ]
+    },
+    "clangd": {
+      "disabled": true,
+      "command": [
+        "clangd"
+      ],
+      "extensions": [
+        ".c",
+        ".h",
+        ".cpp",
+        ".hpp",
+        ".cc",
+        ".cxx",
+        ".hxx",
+        ".cu"
+      ]
+    },
+    "bash": {
+      "command": [
+        "bash-language-server",
+        "start"
+      ],
+      "extensions": [
+        ".sh",
+        ".bash",
+        ".zsh",
+        ".ksh"
+      ]
+    },
+    "yaml-ls": {
+      "command": [
+        "yaml-language-server",
+        "--stdio"
+      ],
+      "extensions": [
+        ".yaml",
+        ".yml"
+      ]
+    },
+    "rust": {
+      "command": [
+        "rust-analyzer"
+      ],
+      "extensions": [
+        ".rs"
+      ]
+    },
+    "marksman": {
+      "command": [
+        "marksman"
+      ],
+      "extensions": [
+        ".md"
+      ]
+    },
+    "jqls": {
+      "command": [
+        "jq-lsp"
+      ],
+      "extensions": [
+        ".jq"
+      ]
+    },
+    "jsonls": {
+      "command": [
+        "vscode-json-languageserver",
+        "--stdio"
+      ],
+      "extensions": [
+        ".json",
+        ".jsonc"
+      ]
+    },
+    "glsl_analyzer": {
+      "command": [
+        "glsl_analyzer"
+      ],
+      "extensions": [
+        ".glsl",
+        ".vert",
+        ".frag",
+        ".geom",
+        ".comp"
+      ]
+    },
+    "buf_ls": {
+      "command": [
+        "buf",
+        "lsp",
+        "serve"
+      ],
+      "extensions": [
+        ".proto"
+      ]
+    },
+    "nixd": {
+      "command": [
+        "nixd"
+      ],
+      "extensions": [
+        ".nix"
+      ]
+    },
+    "neocmake": {
+      "command": [
+        "neocmakelsp"
+      ],
+      "extensions": [
+        ".cmake",
+        "CMakeLists.txt"
+      ]
+    },
+    "taplo": {
+      "command": [
+        "taplo",
+        "lsp",
+        "stdio"
+      ],
+      "extensions": [
+        ".toml"
+      ]
+    },
+    "tinymist": {
+      "command": [
+        "tinymist"
+      ],
+      "extensions": [
+        ".typ"
+      ]
+    },
+    "ty": {
+      "command": [
+        "ty",
+        "server"
+      ],
+      "extensions": [
+        ".py",
+        ".pyi"
+      ]
+    }
+  },
   "subagent_depth": 6,
   "permission": {
     "skill": {
@@ -23,21 +184,28 @@
       "{env:HOME}/secrets/**": "allow"
     },
     "read": {
-      "{env:HOME}/secrets/**": "deny"
+      "{env:HOME}/secrets/**": "deny",
+      "~/secrets/**": "deny"
+    },
+    "glob": {
+      "{env:HOME}/secrets/**": "allow",
+      "~/secrets/**": "allow"
     },
     "bash": {
       "*~/secrets*": "ask",
       "*{env:HOME}/secrets*": "ask",
+      "ls * ~/secrets": "allow",
+      "ls * {env:HOME}/secrets": "allow",
       "sshpass -f ~/secrets/* *": "allow",
       "sshpass -f {env:HOME}/secrets/* *": "allow"
+    },
+    "task": {
+      "source-filer": "deny"
     },
     "edit": {
       "/nix/store/**": "deny",
       "/proc/**": "deny",
       "{env:HOME}/projects/**": "ask"
-    },
-    "task": {
-      "source-filer": "deny"
     }
   },
   "compaction": {
@@ -48,9 +216,6 @@
     "compaction": {
       "model": "{env:OPENCODE_SMALL_MODEL}"
     },
-    "code-cleanup": {
-      "model": "{env:OPENCODE_SMALL_MODEL}"
-    },
     "build-test-summarizer": {
       "model": "{env:OPENCODE_SMALL_MODEL}"
     },
@@ -58,7 +223,7 @@
       "model": "{env:OPENCODE_MEDIUM_MODEL}"
     },
     "code-reviewer": {
-      "model": "{env:OPENCODE_LARGE_MODEL}"
+      "model": "{env:OPENCODE_LARGE_MODEL_ALT}"
     },
     "graph-builder": {
       "model": "{env:OPENCODE_SMALL_MODEL}",
@@ -67,6 +232,7 @@
       }
     },
     "explore": {
+      "model": "{env:OPENCODE_SMALL_MODEL}",
       "permission": {
         "skill": {
           "graphify": "allow",
