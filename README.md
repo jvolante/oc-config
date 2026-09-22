@@ -27,6 +27,18 @@ The main configuration file that controls:
 - **MCP Servers**: Model Context Protocol integrations (lib-info for library analysis)
 - **Agent Model Assignments**: Specialized models for different agent types
 
+### Environment Variables
+
+You must set:
+- OPENCODE_LARGE_MODEL
+- OPENCODE_LARGE_MODEL_ALT
+- OPENCODE_MEDIUM_MODEL
+- OPENCODE_MEDIUM_MODEL_ALT
+- OPENCODE_SMALL_MODEL
+- OPENCODE_TINY_MODEL
+
+to valid model IDs to use this config
+
 ## Librarian
 
 The `librarian` subagent handles research across local files, prior findings,
